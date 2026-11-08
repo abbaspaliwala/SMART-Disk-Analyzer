@@ -19,6 +19,15 @@ import { slugify } from '../shared/format.js';
 import { HistoryStore } from './store.js';
 import { detectSmartctl, readDevices, scanDevices } from './smartctl.js';
 import { loadDemoDevices } from './demo.js';
+import {
+  lookupUser,
+  matchDisk,
+  openInFileManager,
+  partitionPayload,
+  readPartitions,
+  resolveOpener,
+  validateOpenTarget,
+} from './partitions.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(HERE, '..');
@@ -52,6 +61,9 @@ export function parseConfig(argv = process.argv.slice(2), env = process.env) {
     captureIntervalHours: Number(env.CAPTURE_INTERVAL_HOURS || 6),
     designLifeHours: Number(env.DESIGN_LIFE_HOURS || 43800),
     autoCapture: env.AUTO_CAPTURE !== '0',
+    openEnabled: env.ALLOW_OPEN !== '0',
+    lsblk: env.LSBLK_BIN || 'lsblk',
+    findmnt: env.FINDMNT_BIN || 'findmnt',
     historyFile: env.HISTORY_FILE || path.join(DATA_DIR, 'history.json'),
     verbose: env.VERBOSE === '1',
   };
@@ -73,6 +85,8 @@ export function parseConfig(argv = process.argv.slice(2), env = process.env) {
       case '--capture-interval': config.captureIntervalHours = Number(next()); break;
       case '--design-life': config.designLifeHours = Number(next()); break;
       case '--no-auto-capture': config.autoCapture = false; break;
+      case '--no-open': config.openEnabled = false; break;
+      case '--lsblk': config.lsblk = next(); break;
       case '--verbose': config.verbose = true; break;
       case '--help': case '-h': config.help = true; break;
       default:
@@ -98,6 +112,8 @@ Usage: node server/index.js [options]
       --capture-interval <h>  minimum hours between automatic snapshots (default 6)
       --design-life <hours>   design life used for the age model (default 43800)
       --no-auto-capture       never write snapshots automatically
+      --no-open               do not let the GUI open a volume in the file manager
+      --lsblk <path>          lsblk binary used for the partition map (default "lsblk")
       --verbose               log every request
   -h, --help                  show this help
 
@@ -257,6 +273,72 @@ async function ensureSmartctl(state) {
   return state.smartctl;
 }
 
+const PARTITION_CACHE_MS = 5000;
+
+/** Read (and briefly cache) the partition map - lsblk is cheap but not free. */
+async function partitionInfo(state, { force = false } = {}) {
+  const cached = state.partitionsCache;
+  if (!force && cached && Date.now() - cached.at < PARTITION_CACHE_MS) return cached.info;
+  const info = await readPartitions({
+    binary: state.config.lsblk,
+    findmntBinary: state.config.findmnt,
+  });
+  state.partitionsCache = { at: Date.now(), info };
+  state.partitionSource = info.source || null;
+  return info;
+}
+
+/** Attach the volume map of every drive so the GUI can draw the partition bar. */
+async function attachPartitions(disks, state) {
+  if (state.config.mode === 'demo') return; // demo drives ship their own layout
+  let info;
+  try {
+    info = await partitionInfo(state);
+  } catch (error) {
+    console.warn(`[partitions] ${error.message}`);
+    return;
+  }
+  if (info.error) console.warn(`[partitions] ${info.error}`);
+  for (const disk of disks) {
+    const entry = matchDisk(info, disk.device, disk.model);
+    disk.partitions = partitionPayload(entry);
+    if (disk.partitions) disk.partitions.source = info.source || null;
+  }
+}
+
+/** "Can this machine open a file manager?" block for the status payload. */
+function openStatus(state) {
+  return {
+    enabled: state.config.openEnabled,
+    available: Boolean(state.opener),
+    command: state.opener?.name || null,
+  };
+}
+
+/**
+ * When the server runs as root, the volume should still open in the desktop
+ * session of the user who started it - not in root's (usually absent) session.
+ */
+function desktopRunAs() {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return null;
+  const user = process.env.SUDO_USER;
+  if (!user || user === 'root') return null;
+  const account = lookupUser(user);
+  return account && account.uid !== 0 ? account : null;
+}
+
+/** Refuse cross-site posts to the local API (the server sends no CORS headers). */
+function rejectCrossOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return null;
+  try {
+    if (new URL(origin).host === req.headers.host) return null;
+  } catch {
+    /* malformed origin - refuse below */
+  }
+  return `cross-origin request from ${origin} is refused`;
+}
+
 function historyMeta(device) {
   return {
     model: device.model,
@@ -319,6 +401,8 @@ async function buildPayload(state, { force = false, capture = 'auto' } = {}) {
     disks.push(decorateDevice(device, history, config));
   }
 
+  await attachPartitions(disks, state);
+
   const smartctl = await ensureSmartctl(state);
   const historySummary = histories
     ? {
@@ -357,6 +441,8 @@ async function buildPayload(state, { force = false, capture = 'auto' } = {}) {
       scan: scanInfo,
       history: historySummary,
       captured: captureResults,
+      partitions: { source: state.partitionSource || null },
+      open: openStatus(state),
       warning: sourceError,
       serverStartedAt: state.startedAt,
       nodeVersion: process.version,
@@ -528,6 +614,68 @@ async function handleApi(req, res, state, url) {
       }
       return sendJson(res, 405, { error: 'method not allowed' });
     }
+    // GET /api/partitions - the raw volume map (diagnostics / manual refresh)
+    if (parts[1] === 'partitions' && parts.length === 2) {
+      if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+      if (state.config.mode === 'demo') {
+        const demo = collectDemo(state);
+        return sendJson(res, 200, {
+          mode: 'demo',
+          source: 'demo',
+          columns: null,
+          error: null,
+          mounts: [],
+          disks: demo.devices.map((disk) => ({
+            name: disk.device,
+            sizeBytes: disk.capacityBytes,
+            volumes: disk.partitions?.volumes || [],
+          })),
+          open: openStatus(state),
+        });
+      }
+      const info = await partitionInfo(state, { force: searchParams.get('refresh') === '1' });
+      return sendJson(res, 200, {
+        mode: state.config.mode,
+        source: info.source || null,
+        columns: info.columns || null,
+        error: info.error || null,
+        mounts: [...info.mounts],
+        disks: info.disks,
+        open: openStatus(state),
+      });
+    }
+
+    // POST /api/open - open a mounted volume in the desktop file manager
+    if (parts[1] === 'open' && parts.length === 2) {
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+      const crossOrigin = rejectCrossOrigin(req);
+      if (crossOrigin) return sendJson(res, 403, { error: crossOrigin });
+      if (state.config.mode === 'demo') {
+        return sendJson(res, 409, {
+          error: 'Demo drives are fixtures - these volumes do not exist on this machine.',
+        });
+      }
+      if (!state.config.openEnabled) {
+        return sendJson(res, 403, { error: 'opening a file manager is disabled (started with --no-open)' });
+      }
+      const body = await readJsonBody(req, 8 * 1024);
+      const info = await partitionInfo(state, { force: true });
+      const target = validateOpenTarget(body?.path, info.mounts);
+      if (!target.ok) return sendJson(res, 400, { error: target.error });
+      const opener = state.opener || (state.opener = resolveOpener());
+      if (!opener) {
+        return sendJson(res, 503, {
+          error: 'no desktop file manager launcher was found (tried xdg-open, gio, nautilus, dolphin, thunar)',
+        });
+      }
+      try {
+        const result = await openInFileManager(target.path, { opener, runAs: desktopRunAs() });
+        return sendJson(res, 200, { opened: true, path: target.path, command: result.command });
+      } catch (error) {
+        return sendJson(res, 502, { error: error.message });
+      }
+    }
+
     return handleApiTwo(req, res, state, parts, pathname);
   } catch (error) {
     console.error(`[api] ${req.method} ${pathname} failed: ${error.stack || error.message}`);
@@ -596,6 +744,9 @@ export async function startServer(config) {
     cache: { at: 0, payload: null },
     demo: null,
     smartctl: null,
+    opener: resolveOpener(),
+    partitionsCache: null,
+    partitionSource: null,
   };
 
   const smartctl = await ensureSmartctl(state);
@@ -616,6 +767,10 @@ export async function startServer(config) {
   console.log(`  mode:      ${config.mode}${config.mode === 'demo' ? '  (fixtures + synthetic history)' : ''}`);
   console.log(`  smartctl:  ${smartctl.available ? `${smartctl.version} (${config.smartctl})` : 'NOT FOUND'}`);
   console.log(`  history:   ${config.historyFile}`);
+  console.log(`  volumes:   ${config.mode === 'demo' ? 'demo layouts' : 'lsblk (findmnt fallback)'}`);
+  console.log(`  file mgr:  ${config.openEnabled
+    ? (state.opener ? `${state.opener.name} (${state.opener.command})` : 'no launcher found')
+    : 'disabled (--no-open)'}`);
   if (config.mode === 'live') {
     if (smartctl.available && !isRoot && !config.useSudo) {
       console.log('');

@@ -62,6 +62,16 @@ export const api = {
     return request('/api/import', { method: 'POST', body: JSON.stringify(payload) });
   },
 
+  /** Raw partition map of the host (lsblk, or findmnt when lsblk is unavailable). */
+  getPartitions() {
+    return request('/api/partitions');
+  },
+
+  /** Ask the backend to open a mounted volume in the desktop file manager. */
+  openPath(target) {
+    return request('/api/open', { method: 'POST', body: JSON.stringify({ path: target }) });
+  },
+
   /** URL that streams the raw smartctl JSON of one disk. */
   downloadUrl(key) {
     return `/api/download/${encodeURIComponent(key)}`;

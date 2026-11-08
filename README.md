@@ -20,6 +20,9 @@ which is the only reliable way for a web page to reach raw device data.
   which model produced the answer.
 - **History and trends** – snapshots are stored on disk, charted with a canvas trend chart
   and used to replace lifetime averages with *measured* wear and write rates.
+- **Volume map with one-click access** – the hero panel draws the drive's partitions as a
+  proportional bar (label, partition number, size, filesystem, mounted or not, unallocated
+  tail); clicking a mounted volume opens it in the desktop's file manager.
 - **Works without root** – disks are still listed, each one explains why it cannot be read,
   and you can drop a `smartctl -a -j` JSON file from any machine onto the page to analyse
   it. Demo mode ships five fixture drives so the whole UI can be explored immediately.
@@ -69,10 +72,11 @@ both places. That is why imported JSON files get identical scores to locally sca
 | `shared/forecast.js` | Health scoring, trend regression, RUL projections |
 | `shared/format.js` | Byte / duration / percent formatting helpers |
 | `server/smartctl.js` | Device discovery and `smartctl` execution |
+| `server/partitions.js` | `lsblk`/`findmnt` partition map and the file-manager launcher |
 | `server/store.js` | Atomic JSON snapshot history |
 | `server/demo.js` | Fixture loader + synthetic history generator |
 | `server/index.js` | HTTP API + static hosting |
-| `public/js/components/` | `<sa-gauge>`, `<sa-disk-list>`, `<sa-attribute-table>`, `<sa-trend-chart>`, `<sa-forecast-panel>`, `<sa-risk-list>`, `<sa-kpi-strip>`, `<sa-import-dialog>`, `<sa-toasts>` |
+| `public/js/components/` | `<sa-gauge>`, `<sa-disk-list>`, `<sa-partition-map>`, `<sa-attribute-table>`, `<sa-trend-chart>`, `<sa-forecast-panel>`, `<sa-risk-list>`, `<sa-kpi-strip>`, `<sa-import-dialog>`, `<sa-toasts>` |
 
 ## Remaining-life model
 
@@ -118,6 +122,7 @@ unfavourable trends. The full penalty list is returned by the API.
 | KPI strip | disk count, total capacity, mean health, drives needing attention, earliest end of life |
 | Disk rail | every drive with a compact health ring, capacity, wear and remaining life; sorted worst first |
 | Hero | health gauge with grade, remaining life, projected failure date, confidence and a concrete recommendation |
+| Volumes bar | the drive's partitions as one proportional bar with label, partition number, size, filesystem, mounted state and unallocated space; mounted volumes open in the file manager when clicked |
 | Overview tab | risk factors with severity and the SMART attribute that triggered them, endurance/usage stats, and the model breakdown |
 | Parameters tab | all parameters: search, category chips, severity filters, sortable columns, expandable explanation per row, CSV export |
 | Trends tab | canvas trend chart (endurance, health, temperature, reallocated, pending, bytes written, power-on hours) with hover readout and the recent snapshot table |
@@ -129,6 +134,43 @@ Keyboard: `R` rescan · `C` capture snapshot · `I` import JSON · `?` shortcut 
 also captured automatically on every scan, so trends build up by themselves if the analyzer
 is left running (or launched from a timer). A few days of history is enough for the model to
 switch from lifetime averages to measured rates.
+
+## Volumes and the file manager
+
+![volume map](docs/screenshot-volumes.png)
+
+Under the recommendation the hero panel shows the drive's partition layout the way a desktop
+disk utility does:
+
+- each partition is a segment whose width is proportional to its size (tiny partitions keep a
+  minimum visible width and show their details in the tooltip);
+- the label, `Partition n`, size and filesystem are printed inside the segment, plus `off`
+  when the volume is not mounted;
+- the unallocated tail of the drive is drawn as a dashed **Free Space** segment;
+- **clicking a mounted volume** opens that mount point in the default file manager
+  (`xdg-open`, `gio open`, `nautilus`, `dolphin`, … on Linux, `open` on macOS, `explorer` on
+  Windows). Each segment is a real `file:///…` link, so copy-link and middle-click work too.
+
+A browser cannot launch a file manager itself, so the click becomes a `POST /api/open` to the
+local server, which:
+
+1. refuses cross-origin requests (the API sends no CORS headers, so a page on the internet
+   cannot drive it),
+2. only accepts a path that `lsblk`/`findmnt` reported as a **mount point** — `..` escapes,
+   relative paths and arbitrary paths are rejected before anything is spawned,
+3. spawns the launcher with an argument array (never a shell), so a path containing spaces or
+   semicolons is inert,
+4. drops to `SUDO_USER` when the server runs as root (which it needs for SMART), so the window
+   opens in *your* desktop session instead of root's.
+
+Unmounted volumes are deliberately not clickable — there is nothing mounted to open. They are
+shown muted with `off` and explain themselves in a toast. `--no-open` (or `ALLOW_OPEN=0`)
+disables the feature entirely.
+
+Partition data comes from `lsblk -J`, which includes unmounted partitions and the free tail.
+Where `lsblk` is missing or blocked — containers, minimal images — the server falls back to
+`findmnt -J`, which can only report mounted filesystems, so the bar then contains just those.
+Demo drives carry a fabricated layout and are never opened.
 
 ## CLI options
 
@@ -145,12 +187,14 @@ node server/index.js [options]
       --capture-interval <h>  minimum hours between automatic snapshots (default 6)
       --design-life <hours>   design life used by the age model (default 43800)
       --no-auto-capture       never write snapshots automatically
+      --no-open               do not let the GUI open a volume in the file manager
+      --lsblk <path>          lsblk binary used for the partition map (default "lsblk")
       --verbose               log every request
 ```
 
 Environment equivalents: `PORT`, `HOST`, `SMART_MODE=demo`, `SMARTCTL_BIN`,
 `SMARTCTL_SUDO=1`, `REFRESH_SECONDS`, `CAPTURE_INTERVAL_HOURS`, `DESIGN_LIFE_HOURS`,
-`AUTO_CAPTURE=0`, `HISTORY_FILE`.
+`AUTO_CAPTURE=0`, `ALLOW_OPEN=0`, `LSBLK_BIN`, `FINDMNT_BIN`, `HISTORY_FILE`.
 
 ## HTTP API
 
@@ -163,6 +207,8 @@ Environment equivalents: `PORT`, `HOST`, `SMART_MODE=demo`, `SMARTCTL_BIN`,
 | GET | `/api/history/:key` | snapshot history of one disk |
 | DELETE | `/api/history/:key` | forget the history of one disk |
 | POST | `/api/import` | analyse `smartctl` JSON posted in the request body |
+| GET | `/api/partitions` | raw `lsblk`/`findmnt` volume map, mount allowlist and launcher status |
+| POST | `/api/open` | open a **mount point** in the desktop file manager (`{"path": "/run/media/…"}`) |
 | GET | `/api/download/:key` | download the raw `smartctl` JSON |
 
 Example:
@@ -204,6 +250,10 @@ Everything is plain ES modules; there is no bundler. Edit a file and reload the 
   NVMe are auto-detected.
 - Remaining-life figures assume the recent workload continues. A drive that suddenly gets
   much more write traffic will age faster than the projection.
+- The volume map mirrors the host: partitions are discovered with `lsblk`, so on a machine
+  where `lsblk` is unavailable only mounted filesystems (`findmnt`) are shown. Opening a
+  volume needs a desktop session — on a headless box the request reports
+  `xdg-open exited with code …` instead of silently doing nothing.
 
 ## License
 

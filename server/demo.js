@@ -27,6 +27,76 @@ const DEMO_FILES = [
 const WEEK_MS = 7 * 86400000;
 const HISTORY_WEEKS = 12;
 
+/**
+ * Synthetic volume layouts for the demo drives. `share` is a fraction of the
+ * drive capacity; whatever is left over becomes the "Free Space" segment, just
+ * like an unpartitioned tail on a real disk.
+ */
+const DEMO_LAYOUTS = {
+  'nvme-ssd-healthy.json': [
+    { partn: 1, label: 'EFI System', fstype: 'vfat', share: 0.0006 },
+    { partn: 2, label: 'kubuntu_2604', fstype: 'ext4', share: 0.2794 },
+    { partn: 3, label: 'Home', fstype: 'ext4', share: 0.6 },
+  ],
+  'sata-ssd-worn.json': [
+    { partn: 1, label: 'System', fstype: 'ext4', share: 0.25 },
+    { partn: 2, label: 'Data', fstype: 'ntfs', share: 0.7 },
+  ],
+  'hdd-reallocated.json': [
+    { partn: 1, label: 'System Reserved', fstype: 'ntfs', share: 0.0002 },
+    { partn: 2, label: 'Win8', fstype: 'ntfs', share: 0.4998 },
+    { partn: 3, label: 'Recovery', fstype: 'ntfs', share: 0.002 },
+  ],
+  'hdd-failing.json': [
+    { partn: 1, label: 'Media', fstype: 'ext4', share: 0.45 },
+    { partn: 2, label: 'Archive', fstype: 'ext4', share: 0.45 },
+  ],
+  'scsi-sas-hdd.json': [
+    { partn: 1, label: 'root', fstype: 'xfs', share: 0.2 },
+    { partn: 2, label: 'data', fstype: 'xfs', share: 0.79 },
+  ],
+};
+
+/** Device node for partition `partn` of `diskName` (sda1, nvme0n1p1, mmcblk0p1). */
+function partitionNode(diskName, partn) {
+  if (/^nvme\d+$/.test(diskName)) return `${diskName}n1p${partn}`;
+  if (/^mmcblk\d+$/.test(diskName)) return `${diskName}p${partn}`;
+  return `${diskName}${partn}`;
+}
+
+/**
+ * Fabricate the volume map of a demo drive. Nothing here exists on the host -
+ * every volume is flagged `demo` so the GUI never asks to open it.
+ */
+export function buildDemoPartitions(device, layout = []) {
+  const totalBytes = device.capacityBytes || 0;
+  if (!totalBytes || !layout.length) return null;
+  const diskName = String(device.device || '').replace(/\s*\(demo\)\s*$/i, '').replace(/^\/dev\//, '');
+  if (!diskName) return null;
+  const volumes = layout.map((entry) => ({
+    path: `/dev/${partitionNode(diskName, entry.partn)}`,
+    number: entry.partn,
+    label: entry.label,
+    fstype: entry.fstype,
+    sizeBytes: Math.round(totalBytes * entry.share),
+    mountpoint: null,
+    mounted: false,
+    fsUsePercent: entry.usePercent ?? null,
+    fsAvailableBytes: null,
+    demo: true,
+  }));
+  const allocatedBytes = volumes.reduce((total, volume) => total + volume.sizeBytes, 0);
+  return {
+    device: `/dev/${diskName}`,
+    totalBytes,
+    allocatedBytes,
+    freeBytes: Math.max(0, totalBytes - allocatedBytes),
+    volumes,
+    demo: true,
+    source: 'demo',
+  };
+}
+
 function decrementTowards(current, perWeek, weeks) {
   if (current === null || current === undefined) return null;
   return Math.max(0, current - perWeek * weeks);
@@ -111,6 +181,7 @@ export function loadDemoDevices({ now = Date.now() } = {}) {
     device.mode = 'demo';
     device.device = `${device.device} (demo)`;
     device.key = `demo-${device.key}`;
+    device.partitions = buildDemoPartitions(device, DEMO_LAYOUTS[file] || []);
     histories[device.key] = buildDemoHistory(device, now);
     devices.push(device);
   }

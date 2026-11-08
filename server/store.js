@@ -48,7 +48,10 @@ export class HistoryStore {
       await fs.writeFile(tmp, payload, 'utf8');
       await fs.rename(tmp, this.file);
     }).catch((error) => {
-      console.error(`[history] write failed: ${error.message}`);
+      const hint = error.code === 'EACCES'
+        ? ' (owned by root from an earlier "sudo npm start"? fix with: sudo chown $USER data/history.json)'
+        : '';
+      console.error(`[history] write failed: ${error.message}${hint}`);
     });
     return this.writeChain;
   }

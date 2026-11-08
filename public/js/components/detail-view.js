@@ -12,6 +12,7 @@ import './risk-list.js';
 import './forecast-panel.js';
 import './attribute-table.js';
 import './trend-chart.js';
+import './partition-map.js';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -156,6 +157,9 @@ export class SaDetailView extends BaseElement {
             ${recommendation.action ? `<div class="hint" style="margin-top:4px">→ ${escapeHtml(recommendation.action)}</div>` : ''}
           </div>
         </div>
+        ${disk.partitions?.volumes?.length
+          ? '<div class="hero__volumes"><sa-partition-map id="partition-map"></sa-partition-map></div>'
+          : ''}
       </div>
     `;
   }
@@ -256,6 +260,9 @@ export class SaDetailView extends BaseElement {
       const gaugeLabel = this.q('.hero__gauge-label');
       if (gaugeLabel) gaugeLabel.textContent = disk.health?.verdict || 'Health score';
     }
+
+    const partitionMap = this.q('#partition-map');
+    if (partitionMap) partitionMap.setData({ partitions: disk.partitions, device: disk });
 
     if (tab === 'overview') {
       this.q('#risk-list')?.setData({ risks: disk.forecast?.risks || [], health: disk.health });

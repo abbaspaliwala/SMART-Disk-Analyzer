@@ -329,6 +329,84 @@ a { color: var(--accent); }
 .hero__rec--watch { border-color: color-mix(in srgb, var(--watch) 45%, var(--border)); background: color-mix(in srgb, var(--watch) 10%, var(--panel)); }
 .hero__rec--ok { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); background: color-mix(in srgb, var(--ok) 10%, var(--panel)); }
 
+/* --------------------------------------------------------------------------
+   Volumes bar (partition map): one segment per partition, width proportional
+   to its size, a dashed "Free Space" segment for unallocated space.
+   -------------------------------------------------------------------------- */
+.hero__volumes { grid-column: 1 / -1; }
+
+.volumes { border-top: 1px solid var(--border-soft); padding-top: 12px; }
+.volumes__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.volumes__head h3 { font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-dim); }
+.volumes__summary { font-size: 11.5px; color: var(--text-faint); font-family: var(--mono); }
+.volumes__hint { margin-left: auto; font-size: 11px; color: var(--text-faint); }
+.volumes__bar { display: flex; align-items: stretch; gap: 3px; height: 74px; }
+
+.volumes__seg {
+  flex-grow: 0;
+  flex-shrink: 1;
+  min-width: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #f8fbff;
+  text-decoration: none;
+  cursor: pointer;
+  background: linear-gradient(180deg, hsl(var(--hue, 199) 84% 55%), hsl(var(--hue, 199) 78% 41%));
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.18);
+  transition: filter 140ms ease, box-shadow 140ms ease;
+}
+.volumes__seg:hover {
+  filter: brightness(1.1) saturate(1.05);
+  box-shadow: 0 8px 18px hsl(var(--hue, 199) 80% 28% / 0.35), inset 0 1px 0 hsl(0 0% 100% / 0.22);
+}
+.volumes__seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.volumes__seg.is-busy { opacity: 0.6; cursor: progress; }
+
+.volumes__seg--unmounted,
+.volumes__seg--demo {
+  color: var(--text-dim);
+  border-color: var(--border);
+  background:
+    repeating-linear-gradient(135deg, hsl(0 0% 100% / 0.025) 0 6px, transparent 6px 12px),
+    color-mix(in srgb, var(--panel-2) 90%, var(--bg));
+  box-shadow: none;
+}
+.volumes__seg--unmounted:hover,
+.volumes__seg--demo:hover {
+  filter: none;
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: none;
+}
+
+.volumes__seg--free {
+  color: var(--text-faint);
+  border: 1px dashed var(--border);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--text-faint) 18%, transparent) 0 5px, transparent 5px 11px);
+  cursor: default;
+}
+.volumes__seg--free:hover { filter: none; box-shadow: none; }
+
+.volumes__name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.volumes__part { font-size: 11px; opacity: 0.86; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.volumes__size { font-size: 11px; opacity: 0.92; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.volumes__off { font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+
+.volumes__seg--narrow { padding: 0 6px; }
+.volumes__seg--narrow .volumes__part { display: none; }
+.volumes__seg--narrow .volumes__size { font-size: 10px; }
+.volumes__seg--tiny { padding: 0; justify-content: flex-end; }
+.volumes__seg--tiny .volumes__name,
+.volumes__seg--tiny .volumes__part,
+.volumes__seg--tiny .volumes__size { display: none; }
+
+
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); padding: 0 6px; flex-wrap: wrap; }
 .tab {
   padding: 10px 14px;
