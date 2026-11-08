@@ -1,0 +1,54 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 5],
+    "svn_revision": "5714",
+    "platform_info": "x86_64-linux-6.8.0",
+    "argv": ["smartctl", "-a", "-j", "/dev/sdb"],
+    "exit_status": 0
+  },
+  "device": { "name": "/dev/sdb", "info_name": "/dev/sdb [SAT]", "type": "sat", "protocol": "ATA" },
+  "model_family": "Seagate Barracuda 5400.6",
+  "model_name": "ST4000DM004-2CV104",
+  "serial_number": "ZFN1ABCD",
+  "firmware_version": "0001",
+  "user_capacity": { "blocks": 7814037168, "bytes": 4000787030016 },
+  "logical_block_size": 512,
+  "physical_block_size": 4096,
+  "rotation_rate": 5900,
+  "form_factor": { "ata_value": 3, "name": "3.5 inches" },
+  "smart_status": { "passed": true, "ata": { "value": 0 } },
+  "ata_smart_data": {
+    "self_test": { "status": { "value": 0, "string": "completed without error", "passed": true } },
+    "capabilities": { "self_tests_supported": true, "error_logging_supported": true }
+  },
+  "ata_smart_attributes": {
+    "revision": 16,
+    "table": [
+      { "id": 1, "name": "Raw_Read_Error_Rate", "value": 81, "worst": 64, "thresh": 6, "when_failed": "", "raw": { "value": 140211288, "string": "140211288" } },
+      { "id": 3, "name": "Spin_Up_Time", "value": 94, "worst": 93, "thresh": 0, "when_failed": "", "raw": { "value": 0, "string": "0" } },
+      { "id": 4, "name": "Start_Stop_Count", "value": 91, "worst": 91, "thresh": 20, "when_failed": "", "raw": { "value": 9241, "string": "9241" } },
+      { "id": 5, "name": "Reallocated_Sector_Ct", "value": 98, "worst": 97, "thresh": 10, "when_failed": "", "raw": { "value": 48, "string": "48" } },
+      { "id": 7, "name": "Seek_Error_Rate", "value": 84, "worst": 60, "thresh": 45, "when_failed": "", "raw": { "value": 1284932, "string": "1284932" } },
+      { "id": 9, "name": "Power_On_Hours", "value": 30, "worst": 30, "thresh": 0, "when_failed": "", "raw": { "value": 61248, "string": "61248" } },
+      { "id": 10, "name": "Spin_Retry_Count", "value": 100, "worst": 100, "thresh": 97, "when_failed": "", "raw": { "value": 0, "string": "0" } },
+      { "id": 12, "name": "Power_Cycle_Count", "value": 98, "worst": 98, "thresh": 20, "when_failed": "", "raw": { "value": 1452, "string": "1452" } },
+      { "id": 183, "name": "Runtime_Bad_Block", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "raw": { "value": 0, "string": "0" } },
+      { "id": 187, "name": "Reported_Uncorrect", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "raw": { "value": 0, "string": "0" } },
+      { "id": 190, "name": "Airflow_Temperature_Cel", "value": 58, "worst": 45, "thresh": 45, "when_failed": "", "raw": { "value": 42, "string": "42 (Min/Max 28/48)" } },
+      { "id": 191, "name": "G-Sense_Error_Rate", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "raw": { "value": 11, "string": "11" } },
+      { "id": 192, "name": "Power-Off_Retract_Count", "value": 99, "worst": 99, "thresh": 0, "when_failed": "", "raw": { "value": 812, "string": "812" } },
+      { "id": 193, "name": "Load_Cycle_Count", "value": 82, "worst": 82, "thresh": 0, "when_failed": "", "raw": { "value": 184219, "string": "184219" } },
+      { "id": 194, "name": "Temperature_Celsius", "value": 42, "worst": 55, "thresh": 0, "when_failed": "", "raw": { "value": 42, "string": "42 (0 20 0 0 0)" } },
+      { "id": 196, "name": "Reallocation_Event_Count", "value": 98, "worst": 97, "thresh": 0, "when_failed": "", "raw": { "value": 48, "string": "48" } },
+      { "id": 197, "name": "Current_Pending_Sector", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "raw": { "value": 0, "string": "0" } },
+      { "id": 198, "name": "Offline_Uncorrectable", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "raw": { "value": 0, "string": "0" } },
+      { "id": 199, "name": "UDMA_CRC_Error_Count", "value": 200, "worst": 200, "thresh": 0, "when_failed": "", "raw": { "value": 0, "string": "0" } },
+      { "id": 240, "name": "Head_Flying_Hours", "value": 30, "worst": 30, "thresh": 0, "when_failed": "", "raw": { "value": 61248, "string": "61248" } }
+    ]
+  },
+  "ata_smart_error_log": { "summary": { "revision": 1, "count": 3 } },
+  "temperature": { "current": 42 },
+  "power_cycle_count": 1452,
+  "power_on_time": { "hours": 61248 }
+}

@@ -1,0 +1,66 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 5],
+    "svn_revision": "5714",
+    "platform_info": "x86_64-linux-6.8.0",
+    "argv": ["smartctl", "-a", "-j", "/dev/sdd"],
+    "exit_status": 0
+  },
+  "device": { "name": "/dev/sdd", "info_name": "/dev/sdd", "type": "scsi", "protocol": "SCSI" },
+  "scsi_vendor": "SEAGATE",
+  "scsi_product": "ST600MM0006",
+  "scsi_model_name": "SEAGATE ST600MM0006",
+  "scsi_revision": "B001",
+  "scsi_version": "SPC-4",
+  "serial_number": "S0M3XK9A0000B12345",
+  "user_capacity": { "blocks": 1172123568, "bytes": 600127266816 },
+  "logical_block_size": 512,
+  "rotation_rate": 10000,
+  "form_factor": { "scsi_value": 2, "name": "2.5 inches" },
+  "smart_support": { "available": true, "enabled": true },
+  "smart_status": { "passed": true },
+  "scsi_grown_defect_list": 3,
+  "scsi_error_counter_log": {
+    "read": {
+      "errors_corrected_by_eccfast": 128409,
+      "errors_corrected_by_eccdelayed": 2104,
+      "errors_corrected_by_rereads_rewrites": 42,
+      "total_errors_corrected": 130555,
+      "correction_algorithm_invocations": 130555,
+      "gigabytes_processed": "184291.402",
+      "total_uncorrected_errors": 0
+    },
+    "write": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "98213.774",
+      "total_uncorrected_errors": 0
+    },
+    "verify": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 0,
+      "gigabytes_processed": "0.000",
+      "total_uncorrected_errors": 0
+    }
+  },
+  "scsi_start_stop_cycle_counter": {
+    "year_of_manufacture": 2019,
+    "week_of_manufacture": 14,
+    "specified_cycle_count_over_device_lifetime": 10000,
+    "accumulated_start_stop_cycles": 2140,
+    "specified_load_unload_count_over_device_lifetime": 300000,
+    "accumulated_load_unload_cycles": 2142
+  },
+  "scsi_temperature": { "current": 38, "drive_trip": 68 },
+  "power_on_time": { "hours": 41208 },
+  "power_cycle_count": 2140,
+  "temperature": { "current": 38 },
+  "local_time": { "time_t": 1794138328, "asctime": "Sun Nov  8 16:45:28 2026 PKT" }
+}

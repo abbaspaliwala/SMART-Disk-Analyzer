@@ -1,0 +1,26 @@
+{
+  "name": "smart-disk-analyzer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-based dashboard that reads every SMART parameter of all local disks through smartctl and forecasts the remaining useful life of each drive.",
+  "keywords": [
+    "smart",
+    "smartctl",
+    "smartmontools",
+    "disk-health",
+    "predictive-maintenance"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.13"
+  },
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "demo": "node server/index.js --demo",
+    "elevated": "./bin/run-elevated.sh",
+    "test": "node --test tests/*.test.js"
+  }
+}

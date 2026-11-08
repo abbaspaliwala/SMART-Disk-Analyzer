@@ -1,0 +1,47 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 5],
+    "svn_revision": "5714",
+    "platform_info": "x86_64-linux-6.8.0",
+    "argv": ["smartctl", "-a", "-j", "/dev/sdc"],
+    "exit_status": 8
+  },
+  "device": { "name": "/dev/sdc", "info_name": "/dev/sdc [SAT]", "type": "sat", "protocol": "ATA" },
+  "model_family": "Western Digital Caviar Green",
+  "model_name": "WDC WD20EARS-00MVWB0",
+  "serial_number": "WD-WCAZA1234567",
+  "firmware_version": "51.0AB51",
+  "user_capacity": { "blocks": 3907029168, "bytes": 2000398934016 },
+  "logical_block_size": 512,
+  "physical_block_size": 4096,
+  "rotation_rate": 5400,
+  "smart_status": { "passed": false, "ata": { "value": 89 } },
+  "ata_smart_data": {
+    "self_test": { "status": { "value": 0, "string": "completed without error", "passed": true } },
+    "capabilities": { "self_tests_supported": true, "error_logging_supported": true }
+  },
+  "ata_smart_attributes": {
+    "revision": 16,
+    "table": [
+      { "id": 1, "name": "Raw_Read_Error_Rate", "value": 71, "worst": 50, "thresh": 51, "when_failed": "", "raw": { "value": 40923, "string": "40923" } },
+      { "id": 3, "name": "Spin_Up_Time", "value": 253, "worst": 132, "thresh": 21, "when_failed": "", "raw": { "value": 2041, "string": "2041" } },
+      { "id": 5, "name": "Reallocated_Sector_Ct", "value": 12, "worst": 12, "thresh": 140, "when_failed": "FAILING_NOW", "raw": { "value": 1040, "string": "1040" } },
+      { "id": 7, "name": "Seek_Error_Rate", "value": 74, "worst": 60, "thresh": 51, "when_failed": "", "raw": { "value": 1204, "string": "1204" } },
+      { "id": 9, "name": "Power_On_Hours", "value": 21, "worst": 21, "thresh": 0, "when_failed": "", "raw": { "value": 70128, "string": "70128" } },
+      { "id": 12, "name": "Power_Cycle_Count", "value": 99, "worst": 99, "thresh": 0, "when_failed": "", "raw": { "value": 1902, "string": "1902" } },
+      { "id": 187, "name": "Reported_Uncorrect", "value": 1, "worst": 1, "thresh": 0, "when_failed": "", "raw": { "value": 12, "string": "12" } },
+      { "id": 190, "name": "Airflow_Temperature_Cel", "value": 49, "worst": 38, "thresh": 45, "when_failed": "", "raw": { "value": 51, "string": "51 (Min/Max 30/56)" } },
+      { "id": 194, "name": "Temperature_Celsius", "value": 51, "worst": 62, "thresh": 0, "when_failed": "", "raw": { "value": 51, "string": "51 (0 20 0 0 0)" } },
+      { "id": 196, "name": "Reallocation_Event_Count", "value": 1, "worst": 1, "thresh": 0, "when_failed": "", "raw": { "value": 1040, "string": "1040" } },
+      { "id": 197, "name": "Current_Pending_Sector", "value": 189, "worst": 189, "thresh": 0, "when_failed": "", "raw": { "value": 24, "string": "24" } },
+      { "id": 198, "name": "Offline_Uncorrectable", "value": 100, "worst": 100, "thresh": 0, "when_failed": "", "raw": { "value": 8, "string": "8" } },
+      { "id": 199, "name": "UDMA_CRC_Error_Count", "value": 200, "worst": 200, "thresh": 0, "when_failed": "", "raw": { "value": 4, "string": "4" } },
+      { "id": 200, "name": "Multi_Zone_Error_Rate", "value": 1, "worst": 1, "thresh": 0, "when_failed": "", "raw": { "value": 0, "string": "0" } }
+    ]
+  },
+  "ata_smart_error_log": { "summary": { "revision": 1, "count": 42 } },
+  "temperature": { "current": 51 },
+  "power_cycle_count": 1902,
+  "power_on_time": { "hours": 70128 }
+}

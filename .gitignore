@@ -1,0 +1,18 @@
+# runtime data (collected SMART snapshots)
+data/*.json
+data/*.tmp
+!data/.gitkeep
+
+# logs
+*.log
+npm-debug.log*
+
+# os / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/settings.json
+
+# dependencies (project uses zero runtime deps, kept for future use)
+node_modules/
