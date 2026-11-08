@@ -44,12 +44,28 @@ jobs:
           DEB="$(ls build/smart-disk-analyzer_*_all.deb)"
           echo "::notice title=package::$(basename "$DEB") ($(du -h "$DEB" | cut -f1))"
           dpkg-deb -I "$DEB"
+
+          listing="$(dpkg-deb -c "$DEB")"
           # every file must be 0644 or 0755 (no group/world writable payload)
-          bad="$(dpkg-deb -c "$DEB" | awk '$1 ~ /^-/ && $1 != "-rw-r--r--" && $1 != "-rwxr-xr-x" {print $1, $6}')"
+          bad="$(printf '%s\n' "$listing" | awk '$1 ~ /^-/ && $1 != "-rw-r--r--" && $1 != "-rwxr-xr-x" {print $1, $6}')"
           if [ -n "$bad" ]; then echo "unexpected modes:"; echo "$bad"; exit 1; fi
-          dpkg-deb -c "$DEB" | grep -q '^-rwxr-xr-x ./usr/bin/smart-disk-analyzer$'
-          dpkg-deb -c "$DEB" | grep -q '^-rwxr-xr-x ./usr/libexec/smart-disk-analyzer$'
-          dpkg-deb -c "$DEB" | grep -q './usr/share/polkit-1/actions/io.github.abbaspaliwala.SmartDiskAnalyzer.policy'
+          echo "file modes: $(printf '%s\n' "$listing" | awk '$1 ~ /^-/ {print $1}' | sort -u | tr '\n' ' ')"
+
+          # the entry points, the PolicyKit action and the desktop file must be there
+          for expected in \
+            '^-rwxr-xr-x root/root .* ./usr/bin/smart-disk-analyzer$' \
+            '^-rwxr-xr-x root/root .* ./usr/libexec/smart-disk-analyzer$' \
+            './usr/share/polkit-1/actions/io.github.abbaspaliwala.SmartDiskAnalyzer.policy$' \
+            './usr/share/applications/io.github.abbaspaliwala.SmartDiskAnalyzer.desktop$' \
+            './usr/share/metainfo/io.github.abbaspaliwala.SmartDiskAnalyzer.metainfo.xml$' \
+            './usr/lib/smart-disk-analyzer/server/index.js$' \
+          ; do
+            if ! printf '%s\n' "$listing" | grep -E "$expected" >/dev/null; then
+              echo "missing from the package: $expected"
+              exit 1
+            fi
+          done
+          echo "payload complete"
 
       - name: Validate desktop metadata
         run: |
