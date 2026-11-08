@@ -19,6 +19,7 @@ import { slugify } from '../shared/format.js';
 import { HistoryStore } from './store.js';
 import { detectSmartctl, readDevices, scanDevices } from './smartctl.js';
 import { loadDemoDevices } from './demo.js';
+import { openBrowser, resolveBrowser } from './browser.js';
 import {
   lookupUser,
   matchDisk,
@@ -62,6 +63,7 @@ export function parseConfig(argv = process.argv.slice(2), env = process.env) {
     designLifeHours: Number(env.DESIGN_LIFE_HOURS || 43800),
     autoCapture: env.AUTO_CAPTURE !== '0',
     openEnabled: env.ALLOW_OPEN !== '0',
+    openBrowser: env.NO_BROWSER !== '1',
     lsblk: env.LSBLK_BIN || 'lsblk',
     findmnt: env.FINDMNT_BIN || 'findmnt',
     historyFile: env.HISTORY_FILE || path.join(DATA_DIR, 'history.json'),
@@ -86,6 +88,7 @@ export function parseConfig(argv = process.argv.slice(2), env = process.env) {
       case '--design-life': config.designLifeHours = Number(next()); break;
       case '--no-auto-capture': config.autoCapture = false; break;
       case '--no-open': config.openEnabled = false; break;
+      case '--no-browser': config.openBrowser = false; break;
       case '--lsblk': config.lsblk = next(); break;
       case '--verbose': config.verbose = true; break;
       case '--help': case '-h': config.help = true; break;
@@ -113,6 +116,7 @@ Usage: node server/index.js [options]
       --design-life <hours>   design life used for the age model (default 43800)
       --no-auto-capture       never write snapshots automatically
       --no-open               do not let the GUI open a volume in the file manager
+      --no-browser            do not open the dashboard in a browser on start
       --lsblk <path>          lsblk binary used for the partition map (default "lsblk")
       --verbose               log every request
   -h, --help                  show this help
@@ -783,6 +787,18 @@ export async function startServer(config) {
     }
   }
   console.log('');
+
+  // Interactive runs (npm start / demo / elevated) open the dashboard directly.
+  if (config.openBrowser && process.stdout.isTTY) {
+    const browser = resolveBrowser();
+    if (browser) {
+      openBrowser(baseUrl, { opener: browser, runAs: desktopRunAs() })
+        .then(() => console.log(`  opened ${baseUrl} in ${browser.name}`))
+        .catch((error) => console.log(`  could not open a browser (${error.message}) - visit ${baseUrl}`));
+    } else {
+      console.log(`  no browser launcher found - visit ${baseUrl}`);
+    }
+  }
 
   return { server, state, baseUrl, port };
 }

@@ -188,13 +188,18 @@ node server/index.js [options]
       --design-life <hours>   design life used by the age model (default 43800)
       --no-auto-capture       never write snapshots automatically
       --no-open               do not let the GUI open a volume in the file manager
+      --no-browser            do not open the dashboard in a browser on start
       --lsblk <path>          lsblk binary used for the partition map (default "lsblk")
       --verbose               log every request
 ```
 
 Environment equivalents: `PORT`, `HOST`, `SMART_MODE=demo`, `SMARTCTL_BIN`,
 `SMARTCTL_SUDO=1`, `REFRESH_SECONDS`, `CAPTURE_INTERVAL_HOURS`, `DESIGN_LIFE_HOURS`,
-`AUTO_CAPTURE=0`, `ALLOW_OPEN=0`, `LSBLK_BIN`, `FINDMNT_BIN`, `HISTORY_FILE`.
+`AUTO_CAPTURE=0`, `ALLOW_OPEN=0`, `NO_BROWSER=1`, `LSBLK_BIN`, `FINDMNT_BIN`, `HISTORY_FILE`.
+
+Every interactive start (`npm start`, `npm run demo`, `npm run elevated`) opens the dashboard
+in your default browser once the server is listening; `--no-browser` (or `NO_BROWSER=1`)
+disables that, and it is skipped automatically when there is no terminal (services, CI).
 
 ## HTTP API
 

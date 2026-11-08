@@ -19,6 +19,7 @@ import {
   which,
 } from '../server/partitions.js';
 import { buildDemoPartitions, loadDemoDevices } from '../server/demo.js';
+import { openBrowser, resolveBrowser } from '../server/browser.js';
 import { parseConfig, startServer } from '../server/index.js';
 
 /** The Windows disk of a typical dual boot machine. */
@@ -371,6 +372,7 @@ test('the volume API opens mount points and refuses everything else', async (t) 
     lsblk: lsblkBin,
     historyFile: path.join(dir, 'history.json'),
     refreshSeconds: 0,
+    openBrowser: false,
   });
   t.after(async () => {
     process.env.PATH = originalPath;
@@ -429,6 +431,7 @@ test('demo mode reports its layouts and never opens a volume', async (t) => {
     mode: 'demo',
     historyFile: path.join(dir, 'history.json'),
     refreshSeconds: 0,
+    openBrowser: false,
   });
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
@@ -452,4 +455,45 @@ test('demo mode reports its layouts and never opens a volume', async (t) => {
   assert.equal(response.status, 409);
   assert.match((await response.json()).error, /fixtures/);
 });
+
+test('the server opens the dashboard in a browser on startup', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'smart-browser-'));
+  const fakeBrowser = path.join(dir, 'xdg-open');
+  const log = path.join(dir, 'opened.log');
+  await fs.writeFile(fakeBrowser, `#!/bin/sh\nprintf '%s\\n' "$1" >> "${log}"\n`);
+  await fs.chmod(fakeBrowser, 0o755);
+
+  // candidate order and platform support
+  assert.deepEqual(
+    resolveBrowser({ platform: 'linux', env: { PATH: dir } }),
+    { command: fakeBrowser, name: 'xdg-open', args: [] },
+  );
+  assert.deepEqual(
+    resolveBrowser({ platform: 'linux', find: (command) => (command === 'gio' ? '/usr/bin/gio' : null) }),
+    { command: '/usr/bin/gio', name: 'gio', args: ['open'] },
+  );
+  assert.equal(resolveBrowser({ platform: 'linux', find: () => null }), null);
+  assert.equal(resolveBrowser({ platform: 'plan9', find: () => '/bin/true' }), null);
+
+  // only http(s) URLs are ever handed to the launcher
+  await assert.rejects(openBrowser('file:///etc/passwd', { opener: { command: fakeBrowser, name: 'xdg-open' } }), /refusing/);
+  await assert.rejects(openBrowser('http://127.0.0.1:7373/', { opener: null }), /no browser launcher/);
+
+  const result = await openBrowser('http://127.0.0.1:7373/?x=1', {
+    opener: { command: fakeBrowser, name: 'xdg-open', args: [] },
+  });
+  assert.equal(result.command, 'xdg-open');
+  assert.equal(result.url, 'http://127.0.0.1:7373/?x=1');
+
+  // the launcher receives the URL as a single argument, untouched
+  let recorded = '';
+  for (let attempt = 0; attempt < 40 && !recorded; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    recorded = (await fs.readFile(log, 'utf8').catch(() => '')).trim();
+  }
+  assert.equal(recorded, 'http://127.0.0.1:7373/?x=1');
+
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
 

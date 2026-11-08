@@ -122,6 +122,7 @@ test('the HTTP API serves demo disks, import, capture and static assets', async 
     mode: 'demo',
     historyFile: path.join(dir, 'history.json'),
     refreshSeconds: 0,
+    openBrowser: false,
   });
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));

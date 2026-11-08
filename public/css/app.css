@@ -354,16 +354,16 @@ a { color: var(--accent); }
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: #f8fbff;
+  color: #d9e6f7;
   text-decoration: none;
   cursor: pointer;
-  background: linear-gradient(180deg, hsl(var(--hue, 199) 84% 55%), hsl(var(--hue, 199) 78% 41%));
-  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.18);
+  background: linear-gradient(180deg, hsl(var(--hue, 199) 52% 40%), hsl(var(--hue, 199) 50% 28%));
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.1);
   transition: filter 140ms ease, box-shadow 140ms ease;
 }
 .volumes__seg:hover {
-  filter: brightness(1.1) saturate(1.05);
-  box-shadow: 0 8px 18px hsl(var(--hue, 199) 80% 28% / 0.35), inset 0 1px 0 hsl(0 0% 100% / 0.22);
+  filter: brightness(1.16) saturate(1.04);
+  box-shadow: 0 8px 18px hsl(var(--hue, 199) 70% 20% / 0.4), inset 0 1px 0 hsl(0 0% 100% / 0.14);
 }
 .volumes__seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .volumes__seg.is-busy { opacity: 0.6; cursor: progress; }
