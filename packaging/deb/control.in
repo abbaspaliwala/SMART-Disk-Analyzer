@@ -1,0 +1,24 @@
+Package: smart-disk-analyzer
+Version: @VERSION@
+Architecture: all
+Maintainer: Abbas Paliwala <abbaspaliwala@users.noreply.github.com>
+Installed-Size: @INSTALLED_SIZE@
+Depends: nodejs (>= 18.13), smartmontools, pkexec | policykit-1, xdg-utils
+Recommends: zenity | kdialog | x11-utils, udisks2
+Section: utils
+Priority: optional
+Homepage: https://github.com/abbaspaliwala/SMART-Disk-Analyzer
+Description: SMART disk health dashboard with remaining-life forecasting
+ Reads every SMART parameter of every disk, scores the health of each drive and
+ forecasts its remaining useful life in a local web dashboard.
+ .
+ Features:
+  * all ATA attributes, NVMe health-log fields and SCSI counters, filterable
+  * health score with the risk factors that produced it
+  * remaining-life forecast from wear trend, write budget and defect growth
+  * partition map with one-click access to mounted volumes
+  * snapshot history and canvas trend charts
+ .
+ Reading SMART needs raw device access, so the server is started through
+ PolicyKit after one authentication prompt, binds to 127.0.0.1 only and stores
+ its snapshot history in /var/lib/smart-disk-analyzer/.

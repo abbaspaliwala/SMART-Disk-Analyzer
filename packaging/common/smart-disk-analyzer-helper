@@ -1,0 +1,58 @@
+#!/bin/sh
+#
+# SMART Disk Analyzer - privileged helper.
+#
+# This is the only program pkexec authorises. It accepts a port and nothing
+# else: the application directory and the history file are fixed here, so a
+# caller cannot point a root process at an arbitrary file or command.
+#
+set -eu
+
+APP_DIR="${SMART_ANALYZER_APP_DIR:-/usr/lib/smart-disk-analyzer}"
+STATE_DIR="${SMART_ANALYZER_STATE_DIR:-/var/lib/smart-disk-analyzer}"
+PORT=7373
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --port)
+      [ "$#" -ge 2 ] || { echo "smart-disk-analyzer: --port needs a value" >&2; exit 64; }
+      PORT="$2"
+      shift 2
+      ;;
+    *)
+      echo "smart-disk-analyzer: unsupported argument '$1'" >&2
+      exit 64
+      ;;
+  esac
+done
+
+case "$PORT" in
+  ''|*[!0-9]*) echo "smart-disk-analyzer: invalid port '$PORT'" >&2; exit 64 ;;
+esac
+if [ "$PORT" -lt 1024 ] || [ "$PORT" -gt 65535 ]; then
+  echo "smart-disk-analyzer: port out of range (1024-65535)" >&2
+  exit 64
+fi
+
+NODE_BIN="$(command -v node || command -v nodejs || true)"
+if [ -z "$NODE_BIN" ] || [ ! -x "$NODE_BIN" ]; then
+  echo "smart-disk-analyzer: Node.js is not installed" >&2
+  exit 127
+fi
+
+if [ ! -f "$APP_DIR/server/index.js" ]; then
+  echo "smart-disk-analyzer: $APP_DIR/server/index.js is missing" >&2
+  exit 127
+fi
+
+install -d -m 0755 "$STATE_DIR"
+# Let the user who authenticated read and delete their own snapshot history.
+if [ -n "${PKEXEC_UID:-}" ]; then
+  chown "$PKEXEC_UID" "$STATE_DIR" 2>/dev/null || true
+fi
+
+exec "$NODE_BIN" "$APP_DIR/server/index.js" \
+  --no-browser \
+  --host 127.0.0.1 \
+  --port "$PORT" \
+  --history-file "$STATE_DIR/history.json"

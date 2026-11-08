@@ -1,0 +1,22 @@
+#!/bin/sh
+# Post-installation: create the snapshot directory and refresh the caches the
+# desktop needs to show the new entry and icon immediately.
+set -e
+
+if [ "$1" = "configure" ]; then
+  install -d -m 0755 /var/lib/smart-disk-analyzer
+
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+  fi
+  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+  fi
+  if command -v appstreamcli >/dev/null 2>&1; then
+    appstreamcli refresh-cache --quiet || true
+  fi
+fi
+
+#DEBHELPER#
+
+exit 0

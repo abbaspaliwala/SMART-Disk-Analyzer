@@ -172,6 +172,45 @@ Where `lsblk` is missing or blocked — containers, minimal images — the serve
 `findmnt -J`, which can only report mounted filesystems, so the bar then contains just those.
 Demo drives carry a fabricated layout and are never opened.
 
+## Desktop installation (Debian / Ubuntu)
+
+A Debian package is built from this repository and attached to every tagged release:
+
+```bash
+sudo apt install ./smart-disk-analyzer_1.1.0_all.deb
+```
+
+From then on the application is a normal desktop app:
+
+1. **SMART Disk Analyzer** in your desktop menu (or `smart-disk-analyzer` in a terminal).
+2. PolicyKit asks once — *"Authentication is required to read SMART data from the local disks"*.
+3. The dashboard opens in your browser with live SMART data for every disk.
+
+Starting it again reuses the running server, so there is no second prompt. Closing the browser
+leaves the local server running until you log out (it listens on `127.0.0.1` only).
+
+| Path | Contents |
+| --- | --- |
+| `/usr/bin/smart-disk-analyzer` | launcher (reuse / authenticate / open browser) |
+| `/usr/libexec/smart-disk-analyzer` | privileged helper — the only program PolicyKit authorises |
+| `/usr/lib/smart-disk-analyzer/` | the application itself (`server/`, `shared/`, `public/`) |
+| `/var/lib/smart-disk-analyzer/history.json` | snapshot history (kept on uninstall) |
+
+**Security model.** The helper accepts a `--port` argument and nothing else: the application
+directory, the host (`127.0.0.1`) and the history path are fixed inside it, so a caller cannot
+point a root process at another file or command. It runs `smartctl`/`lsblk` through argument
+arrays, never a shell, and the HTTP API refuses cross-origin requests and only opens mount
+points that the kernel reports.
+
+Dependencies are pulled in automatically: `nodejs (>= 18.13)`, `smartmontools`, `pkexec`,
+`xdg-utils`. Building the package yourself needs nothing but `dpkg-deb`:
+
+```bash
+bash packaging/deb/build-deb.sh       # -> build/smart-disk-analyzer_<version>_all.deb
+```
+
+A Launchpad PPA is planned; until then, GitHub Releases is the distribution channel.
+
 ## CLI options
 
 ```
@@ -189,6 +228,7 @@ node server/index.js [options]
       --no-auto-capture       never write snapshots automatically
       --no-open               do not let the GUI open a volume in the file manager
       --no-browser            do not open the dashboard in a browser on start
+      --history-file <path>   where snapshots are stored (default ./data/history.json)
       --lsblk <path>          lsblk binary used for the partition map (default "lsblk")
       --verbose               log every request
 ```

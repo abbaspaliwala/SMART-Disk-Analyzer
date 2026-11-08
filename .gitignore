@@ -16,3 +16,6 @@ Thumbs.db
 
 # dependencies (project uses zero runtime deps, kept for future use)
 node_modules/
+
+# build output (packaging)
+build/

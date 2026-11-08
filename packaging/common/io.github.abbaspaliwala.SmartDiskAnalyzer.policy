@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+
+  <vendor>SMART Disk Analyzer</vendor>
+  <vendor_url>https://github.com/abbaspaliwala/SMART-Disk-Analyzer</vendor_url>
+  <icon_name>io.github.abbaspaliwala.SmartDiskAnalyzer</icon_name>
+
+  <!-- Only this exact program may be launched through this action. -->
+  <action id="io.github.abbaspaliwala.SmartDiskAnalyzer.read-smart">
+    <description>Read SMART data from the local disks</description>
+    <message>Authentication is required to read SMART data from the local disks</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/smart-disk-analyzer</annotate>
+  </action>
+
+</policyconfig>

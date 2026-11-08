@@ -89,6 +89,7 @@ export function parseConfig(argv = process.argv.slice(2), env = process.env) {
       case '--no-auto-capture': config.autoCapture = false; break;
       case '--no-open': config.openEnabled = false; break;
       case '--no-browser': config.openBrowser = false; break;
+      case '--history-file': config.historyFile = next(); break;
       case '--lsblk': config.lsblk = next(); break;
       case '--verbose': config.verbose = true; break;
       case '--help': case '-h': config.help = true; break;
@@ -117,6 +118,7 @@ Usage: node server/index.js [options]
       --no-auto-capture       never write snapshots automatically
       --no-open               do not let the GUI open a volume in the file manager
       --no-browser            do not open the dashboard in a browser on start
+      --history-file <path>   where snapshots are stored (default ./data/history.json)
       --lsblk <path>          lsblk binary used for the partition map (default "lsblk")
       --verbose               log every request
   -h, --help                  show this help
@@ -739,7 +741,7 @@ export function createServer(state) {
 
 /** Wire up state and start listening. */
 export async function startServer(config) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.mkdir(path.dirname(config.historyFile), { recursive: true });
 
   const state = {
     config,

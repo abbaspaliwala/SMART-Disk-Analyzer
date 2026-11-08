@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=SMART Disk Analyzer
+GenericName=Disk Health Analyzer
+Comment=Read every SMART parameter of your disks and forecast their remaining life
+Exec=smart-disk-analyzer
+Icon=io.github.abbaspaliwala.SmartDiskAnalyzer
+Terminal=false
+StartupNotify=false
+Categories=System;Monitor;
+Keywords=smart;smartctl;disk;drive;ssd;hdd;nvme;health;wear;temperature;remaining life;

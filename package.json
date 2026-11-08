@@ -1,6 +1,6 @@
 {
   "name": "smart-disk-analyzer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Browser-based dashboard that reads every SMART parameter of all local disks through smartctl and forecasts the remaining useful life of each drive.",

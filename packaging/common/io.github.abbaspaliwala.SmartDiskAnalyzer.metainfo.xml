@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.abbaspaliwala.SmartDiskAnalyzer</id>
+
+  <name>SMART Disk Analyzer</name>
+  <summary>Read every SMART parameter of your disks and forecast their remaining life</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      SMART Disk Analyzer reads the self-monitoring data every modern drive keeps about itself
+      and turns it into a health score and a remaining-life estimate.
+    </p>
+    <p>It shows:</p>
+    <ul>
+      <li>every ATA attribute, NVMe health-log field and SCSI counter, searchable and sortable</li>
+      <li>a health score with the risk factors that produced it</li>
+      <li>a remaining-life forecast combining wear trend, write budget, defect growth and design life</li>
+      <li>the partition layout of each drive, including unallocated space</li>
+      <li>trend charts built from snapshots stored on this machine</li>
+    </ul>
+    <p>
+      Reading SMART needs raw device access, so the application asks for authentication once
+      through PolicyKit and then serves its dashboard on 127.0.0.1 only.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.abbaspaliwala.SmartDiskAnalyzer.desktop</launchable>
+
+  <url type="homepage">https://github.com/abbaspaliwala/SMART-Disk-Analyzer</url>
+  <url type="bugtracker">https://github.com/abbaspaliwala/SMART-Disk-Analyzer/issues</url>
+  <url type="vcs-browser">https://github.com/abbaspaliwala/SMART-Disk-Analyzer</url>
+
+  <developer id="io.github.abbaspaliwala">
+    <name>Abbas Paliwala</name>
+  </developer>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/abbaspaliwala/SMART-Disk-Analyzer/main/docs/screenshot-overview.png</image>
+      <caption>Health score, remaining life and the partition layout of the selected drive</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/abbaspaliwala/SMART-Disk-Analyzer/main/docs/screenshot-parameters-light.png</image>
+      <caption>Every SMART parameter in one filterable table</caption>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="1.1.0" date="2026-11-08">
+      <description>
+        <p>First packaged release: per-disk volume map, file-manager links, dimmed palette.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1"/>
+
+  <categories>
+    <category>System</category>
+    <category>Monitor</category>
+  </categories>
+
+  <requires>
+    <display_length compare="ge">900</display_length>
+  </requires>
+</component>

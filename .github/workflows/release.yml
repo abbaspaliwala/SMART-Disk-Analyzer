@@ -1,0 +1,133 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+
+  deb:
+    name: debian package
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build .deb
+        run: bash packaging/deb/build-deb.sh
+
+      - name: Inspect the package
+        run: |
+          set -euo pipefail
+          DEB="$(ls build/smart-disk-analyzer_*_all.deb)"
+          echo "::notice title=package::$(basename "$DEB") ($(du -h "$DEB" | cut -f1))"
+          dpkg-deb -I "$DEB"
+          # every file must be 0644 or 0755 (no group/world writable payload)
+          bad="$(dpkg-deb -c "$DEB" | awk '$1 ~ /^-/ && $1 != "-rw-r--r--" && $1 != "-rwxr-xr-x" {print $1, $6}')"
+          if [ -n "$bad" ]; then echo "unexpected modes:"; echo "$bad"; exit 1; fi
+          dpkg-deb -c "$DEB" | grep -q '^-rwxr-xr-x ./usr/bin/smart-disk-analyzer$'
+          dpkg-deb -c "$DEB" | grep -q '^-rwxr-xr-x ./usr/libexec/smart-disk-analyzer$'
+          dpkg-deb -c "$DEB" | grep -q './usr/share/polkit-1/actions/io.github.abbaspaliwala.SmartDiskAnalyzer.policy'
+
+      - name: Validate desktop metadata
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq desktop-file-utils appstream
+          desktop-file-validate packaging/common/*.desktop
+          appstreamcli validate --no-net packaging/common/*.metainfo.xml
+
+      - name: Smoke test the packaged server
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pkgroot /tmp/pkgstate
+          mkdir -p /tmp/pkgroot
+          dpkg-deb -x build/smart-disk-analyzer_*_all.deb /tmp/pkgroot
+          SMART_ANALYZER_APP_DIR=/tmp/pkgroot/usr/lib/smart-disk-analyzer \
+          SMART_ANALYZER_STATE_DIR=/tmp/pkgstate \
+          /tmp/pkgroot/usr/libexec/smart-disk-analyzer --port 7411 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:7411/api/status >/dev/null 2>&1 && break
+            sleep 0.25
+          done
+          for path in /api/status /api/disks /api/partitions /js/app.js /css/app.css; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:7411$path")"
+            echo "$path -> $code"
+            [ "$code" = 200 ]
+          done
+          # a path that is not a reported mount point must never be opened
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' -d '{"path":"/etc"}' \
+            http://127.0.0.1:7411/api/open)"
+          echo "/api/open /etc -> $code (expect 400)"
+          [ "$code" = 400 ]
+          # the helper must refuse anything but --port
+          if /tmp/pkgroot/usr/libexec/smart-disk-analyzer --history-file /tmp/evil.json 2>/dev/null; then
+            echo "helper accepted an unexpected argument"; exit 1
+          fi
+          echo "helper rejected the unexpected argument"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smart-disk-analyzer-deb
+          path: build/*.deb
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    runs-on: ubuntu-latest
+    needs: deb
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: smart-disk-analyzer-deb
+          path: dist
+      - name: Checksums
+        run: cd dist && sha256sum ./*.deb > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.deb
+            dist/SHA256SUMS
+          generate_release_notes: true
+          body: |
+            ## Install (Debian / Ubuntu / Mint / Pop!_OS)
+
+            ```bash
+            sudo apt install ./smart-disk-analyzer_*_all.deb
+            ```
+
+            The application is then available in your desktop menu as **SMART Disk Analyzer**.
+            Starting it asks for authentication once through PolicyKit, then opens the dashboard
+            in your browser with live SMART data for every disk.
+
+            Requirements (installed automatically): `nodejs (>= 18.13)`, `smartmontools`,
+            `pkexec`, `xdg-utils`.
+
+            Uninstall with `sudo apt remove smart-disk-analyzer`; snapshot history in
+            `/var/lib/smart-disk-analyzer/` is kept.

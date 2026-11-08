@@ -29,6 +29,12 @@ test('parseConfig applies defaults and CLI overrides', () => {
   assert.equal(fromEnv.mode, 'demo');
   assert.equal(fromEnv.useSudo, true);
   assert.equal(fromEnv.captureIntervalHours, 12);
+
+  // packaging passes its own state path (the Debian package uses /var/lib)
+  const packaged = parseConfig(['--history-file', '/var/lib/smart-disk-analyzer/history.json', '--no-browser', '--no-open'], {});
+  assert.equal(packaged.historyFile, '/var/lib/smart-disk-analyzer/history.json');
+  assert.equal(packaged.openBrowser, false);
+  assert.equal(packaged.openEnabled, false);
 });
 
 test('parseScanOutput reads normal and open-failed scan lines', () => {

@@ -1,0 +1,90 @@
+#!/bin/sh
+#
+# SMART Disk Analyzer - desktop launcher.
+#
+# Reuses a server that is already running, otherwise starts one through pkexec
+# (one polkit password dialog) and then opens the dashboard in the browser of
+# the user who launched it - never as root.
+#
+set -eu
+
+HELPER="${SMART_ANALYZER_HELPER:-/usr/libexec/smart-disk-analyzer}"
+PORT="${SMART_ANALYZER_PORT:-7373}"
+URL="http://127.0.0.1:${PORT}/"
+
+NODE_BIN="$(command -v node || command -v nodejs || true)"
+
+# Report problems without a terminal (the desktop entry has no console).
+say() {
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title="SMART Disk Analyzer" --text="$1" 2>/dev/null && return 0
+  fi
+  if command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "SMART Disk Analyzer" --error "$1" 2>/dev/null && return 0
+  fi
+  if command -v xmessage >/dev/null 2>&1; then
+    xmessage -center "SMART Disk Analyzer: $1" 2>/dev/null && return 0
+  fi
+  echo "SMART Disk Analyzer: $1" >&2
+}
+
+if [ -z "$NODE_BIN" ]; then
+  say "Node.js is required but was not found. Install the nodejs package and try again."
+  exit 1
+fi
+
+# Is a healthy instance already listening?
+probe() {
+  CHECK_URL="$1" "$NODE_BIN" -e '
+    fetch(process.env.CHECK_URL, { signal: AbortSignal.timeout(900) })
+      .then((response) => process.exit(response.ok ? 0 : 1))
+      .catch(() => process.exit(1));
+  ' >/dev/null 2>&1
+}
+
+# Hand the URL to the desktop browser of the invoking user.
+open_url() {
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$1" >/dev/null 2>&1 &
+  elif command -v gio >/dev/null 2>&1; then
+    gio open "$1" >/dev/null 2>&1 &
+  elif command -v sensible-browser >/dev/null 2>&1; then
+    sensible-browser "$1" >/dev/null 2>&1 &
+  else
+    say "No browser launcher found - open $1 manually."
+  fi
+}
+
+if probe "${URL}api/status"; then
+  open_url "$URL"
+  exit 0
+fi
+
+if ! command -v pkexec >/dev/null 2>&1; then
+  say "pkexec (PolicyKit) is required to read SMART data. Install the pkexec package and try again."
+  exit 1
+fi
+
+# One polkit dialog, then the server runs as root and binds 127.0.0.1 only.
+if ! pkexec "$HELPER" --port "$PORT"; then
+  say "The privileged helper could not be started (authorisation cancelled?)."
+  exit 1
+fi &
+helper_pid=$!
+
+# Wait for the port to answer, then hand the URL to the user's browser.
+attempt=0
+while [ "$attempt" -lt 160 ]; do
+  if probe "${URL}api/status"; then
+    open_url "$URL"
+    exit 0
+  fi
+  # Give up early if the helper already exited (auth denied, port busy, ...):
+  # the background branch above has already explained why.
+  if ! kill -0 "$helper_pid" 2>/dev/null; then exit 1; fi
+  sleep 0.25
+  attempt=$((attempt + 1))
+done
+
+say "The analyzer server did not start. Run 'node /usr/lib/smart-disk-analyzer/server/index.js' in a terminal to see why."
+exit 1
