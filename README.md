@@ -35,6 +35,7 @@ which is the only reliable way for a web page to reach raw device data.
 # 1. smartmontools must be installed
 sudo apt install smartmontools        # Debian / Ubuntu
 # sudo dnf install smartmontools      # Fedora
+# brew install smartmontools          # macOS
 
 # 2. Explore the UI with bundled demo drives (no root needed)
 npm run demo
@@ -47,7 +48,110 @@ sudo ./bin/setup-sudoers.sh     # once
 npm run elevated
 ```
 
-Requires Node.js ≥ 18.13 (tested on Node 22).
+Requires Node.js ≥ 18.13 (tested on Node 22). <kbd>Ctrl</kbd>+<kbd>C</kbd> stops the server;
+[Windows](#windows) has its own launcher, and [Running and stopping](#running-and-stopping-the-server)
+plus [Permissions](#permissions) cover the details.
+
+### Windows
+
+The dashboard runs on Windows, but raw disk access is restricted to administrators:
+
+```powershell
+winget install smartmontools      # or the installer from smartmontools.org
+```
+
+1. **smartmontools must be installed** — the device list comes from `smartctl --scan`. The
+   Windows installer does not always add `bin` to `PATH`, so the analyzer probes
+   `C:\Program Files\smartmontools\bin` (and the `x86` equivalent) itself. For any other
+   location, pass it: `npm start -- --smartctl "D:\tools\smartctl.exe"`.
+2. **Start the server from an elevated terminal** (*Run as administrator*) — Windows only lets
+   administrators read raw disk data. There is no `sudo` or sudoers step on Windows.
+
+The easiest way to satisfy both is the bundled launcher: it finds `node.exe` even when `PATH`
+is stale, adds `smartmontools\bin` to the server's own `PATH`, and asks for elevation itself.
+
+```powershell
+bin\run-windows.cmd                                   # double-clickable
+powershell -ExecutionPolicy Bypass -File bin\run-windows.ps1 -Port 8080 -NoBrowser
+```
+
+Or start it by hand from an Administrator PowerShell:
+
+```powershell
+npm start
+```
+
+Installing smartmontools while the server is running is enough: detection repeats while no
+binary is found, so a **Rescan** picks it up without a restart.
+
+The Volumes bar works on Windows too: disks, partitions and drive letters come from the Storage
+cmdlets (`Get-Disk`, `Get-Partition`, `Get-Volume`), so `C:` and friends are drawn on their own
+physical drive with their label, filesystem, size and free space — exactly like the `lsblk` map
+on Linux. Bare partitions (EFI, MSR, Recovery) appear as unmounted segments, and clicking a
+lettered volume opens it in Explorer. If the cmdlets are blocked, the bar is simply empty and
+`/api/partitions` reports why.
+
+To fix `PATH` permanently instead, run this once in an **elevated** PowerShell:
+
+```powershell
+$machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+if ($machine -notlike '*smartmontools*') {
+  [Environment]::SetEnvironmentVariable('Path', ($machine.TrimEnd(';') + ';C:\Program Files\smartmontools\bin'), 'Machine')
+}
+```
+
+If no disk is listed, the dashboard banner states exactly which of these steps is missing.
+
+## Running and stopping the server
+
+The analyzer is a foreground process: it starts, prints its URL, and keeps running.
+
+| | Start | Stop |
+| --- | --- | --- |
+| Linux / macOS | `npm start` · `sudo npm start` · `npm run elevated` | <kbd>Ctrl</kbd>+<kbd>C</kbd> |
+| Windows | `bin\run-windows.cmd` (asks for elevation) | <kbd>Ctrl</kbd>+<kbd>C</kbd> in that window |
+| Demo mode | `npm run demo` | <kbd>Ctrl</kbd>+<kbd>C</kbd> |
+
+```bash
+npm start                        # live SMART data, opens the dashboard in your browser
+npm start -- --port 8080         # a different port (default 7373, also PORT=8080)
+npm start -- --no-browser        # headless / server use
+curl -s localhost:7373/api/status | head -c 200    # is it alive?
+```
+
+- **Closing the browser does not stop the server.** It listens on `127.0.0.1` only and keeps
+  answering until you stop the process.
+- **`EADDRINUSE` on start** means another instance owns the port: stop it, or pass `--port`.
+- **Left it running in the background?** `nohup npm start > smart.log 2>&1 &` starts it and
+  `pkill -f "server/index.js"` stops it. On Windows, find the listener and stop it by PID:
+
+  ```powershell
+  netstat -ano | findstr :7373
+  Stop-Process -Id <pid>
+  ```
+
+- **`--no-browser` is implied** when stdout is not a terminal (services, CI, `nohup`).
+- Snapshots live in `data/history.json` (or `--history-file`); stopping the server never loses
+  them, and six-hourly auto-capture resumes on the next start.
+
+## Permissions
+
+SMART data is raw hardware access, which every desktop OS restricts. Nothing else in the
+application needs privileges: the HTTP API binds `127.0.0.1` only, sends no CORS headers, and
+`POST /api/open` only opens a mount point that the volume scan actually reported.
+
+| Platform | Needs | How | Without it |
+| --- | --- | --- | --- |
+| Linux | root, or `CAP_SYS_RAWIO` | `sudo npm start`, or `sudo ./bin/setup-sudoers.sh` once then `npm run elevated` | drives are still listed, every SMART read fails with `Permission denied`, and the banner says so |
+| macOS | root | `sudo npm start` | same |
+| Windows | Administrator | `bin\run-windows.cmd` (UAC prompt) or an elevated PowerShell | same — `smartctl --scan` still enumerates drives, but reading them is denied |
+
+- Elevating the **server** is what grants device access; a browser cannot obtain it.
+- `npm run elevated` sends only `smartctl` through `sudo -n`; the server itself stays unprivileged.
+- Demo mode and importing a `smartctl -a -j` file need **no** privileges at all — useful on a
+  locked-down machine.
+- The process never asks for credentials, never writes outside its history file, and never opens
+  a path that was not reported as a mount point.
 
 ## How it works
 
@@ -71,11 +175,14 @@ both places. That is why imported JSON files get identical scores to locally sca
 | `shared/normalize.js` | `smartctl -a -j` JSON → one unified device model |
 | `shared/forecast.js` | Health scoring, trend regression, RUL projections |
 | `shared/format.js` | Byte / duration / percent formatting helpers |
+| `shared/diagnose.js` | Plain-language diagnosis when no disk can be listed (missing smartctl, empty scan, missing privileges) |
 | `server/smartctl.js` | Device discovery and `smartctl` execution |
-| `server/partitions.js` | `lsblk`/`findmnt` partition map and the file-manager launcher |
+| `server/partitions.js` | Volume map (`lsblk`/`findmnt`, Windows Storage cmdlets) and the file-manager launcher |
 | `server/store.js` | Atomic JSON snapshot history |
 | `server/demo.js` | Fixture loader + synthetic history generator |
 | `server/index.js` | HTTP API + static hosting |
+| `bin/run-elevated.sh` · `bin/setup-sudoers.sh` | Linux: run `smartctl` elevated, or grant it `CAP_SYS_RAWIO` once |
+| `bin/run-windows.ps1` · `bin/run-windows.cmd` | Windows launcher: finds `node.exe`, adds `smartmontools\bin` to the server's `PATH`, asks for elevation |
 | `public/js/components/` | `<sa-gauge>`, `<sa-disk-list>`, `<sa-partition-map>`, `<sa-attribute-table>`, `<sa-trend-chart>`, `<sa-forecast-panel>`, `<sa-risk-list>`, `<sa-kpi-strip>`, `<sa-import-dialog>`, `<sa-toasts>` |
 
 ## Remaining-life model
@@ -156,7 +263,7 @@ local server, which:
 
 1. refuses cross-origin requests (the API sends no CORS headers, so a page on the internet
    cannot drive it),
-2. only accepts a path that `lsblk`/`findmnt` reported as a **mount point** — `..` escapes,
+2. only accepts a path that the volume scan reported as a **mount point** — `..` escapes,
    relative paths and arbitrary paths are rejected before anything is spawned,
 3. spawns the launcher with an argument array (never a shell), so a path containing spaces or
    semicolons is inert,
@@ -170,6 +277,13 @@ disables the feature entirely.
 Partition data comes from `lsblk -J`, which includes unmounted partitions and the free tail.
 Where `lsblk` is missing or blocked — containers, minimal images — the server falls back to
 `findmnt -J`, which can only report mounted filesystems, so the bar then contains just those.
+
+On Windows the same picture is assembled from the Storage cmdlets (`Get-Disk`, `Get-Partition`,
+`Get-Volume`): partition → disk numbering matches `PhysicalDriveN`, which is how `smartctl`'s
+`/dev/sdX` addresses the drive, so each bar shows the right drive's partitions. Drive letters are
+the mount points, so a click opens `C:\` in Explorer. If the cmdlets are blocked (locked-down
+policy, no permission) the map degrades to empty and `/api/partitions` reports the reason.
+
 Demo drives carry a fabricated layout and are never opened.
 
 ## Desktop installation (Debian / Ubuntu)
@@ -240,6 +354,8 @@ Environment equivalents: `PORT`, `HOST`, `SMART_MODE=demo`, `SMARTCTL_BIN`,
 Every interactive start (`npm start`, `npm run demo`, `npm run elevated`) opens the dashboard
 in your default browser once the server is listening; `--no-browser` (or `NO_BROWSER=1`)
 disables that, and it is skipped automatically when there is no terminal (services, CI).
+<kbd>Ctrl</kbd>+<kbd>C</kbd> stops the server in every case; see
+[Running and stopping](#running-and-stopping-the-server) and [Permissions](#permissions).
 
 ## HTTP API
 
@@ -252,7 +368,7 @@ disables that, and it is skipped automatically when there is no terminal (servic
 | GET | `/api/history/:key` | snapshot history of one disk |
 | DELETE | `/api/history/:key` | forget the history of one disk |
 | POST | `/api/import` | analyse `smartctl` JSON posted in the request body |
-| GET | `/api/partitions` | raw `lsblk`/`findmnt` volume map, mount allowlist and launcher status |
+| GET | `/api/partitions` | raw volume map (`lsblk`/`findmnt`/Windows cmdlets), mount allowlist and launcher status |
 | POST | `/api/open` | open a **mount point** in the desktop file manager (`{"path": "/run/media/…"}`) |
 | GET | `/api/download/:key` | download the raw `smartctl` JSON |
 
@@ -287,17 +403,22 @@ Everything is plain ES modules; there is no bundler. Edit a file and reload the 
 - The forecast is a statistical estimate, not a guarantee: SMART indicators precede most but
   not all failures (and a drive can die without any warning). Keep backups.
 - `smartctl` needs root (or CAP_SYS_RAWIO) for raw device access; that is a kernel
-  permission, not something a browser can work around.
+  permission, not something a browser can work around. Per-platform requirements are in
+  [Permissions](#permissions).
 - ATA attributes are vendor specific. Known IDs are documented in `shared/attributes.js`;
   unknown ones get a generic trend explanation instead of a guessed verdict.
 - Some USB bridges and RAID controllers hide SMART data entirely. Pass the right `-d` device
   type; the server forwards any non-standard type reported by the scan, while ATA, SCSI and
   NVMe are auto-detected.
+- `smartctl` sometimes lists one drive more than once — under two `-d` types on Windows, or as
+  both a physical disk and a RAID member. Duplicates are collapsed by device path and then by
+  serial number, so every drive appears exactly once; drives without a readable serial are
+  never merged, because they really can be two identical models.
 - Remaining-life figures assume the recent workload continues. A drive that suddenly gets
   much more write traffic will age faster than the projection.
-- The volume map mirrors the host: partitions are discovered with `lsblk`, so on a machine
-  where `lsblk` is unavailable only mounted filesystems (`findmnt`) are shown. Opening a
-  volume needs a desktop session — on a headless box the request reports
+- The volume map mirrors the host: partitions are discovered with `lsblk` (or the Windows Storage
+  cmdlets), so on a machine where `lsblk` is unavailable only mounted filesystems (`findmnt`) are
+  shown. Opening a volume needs a desktop session — on a headless box the request reports
   `xdg-open exited with code …` instead of silently doing nothing.
 
 ## License
