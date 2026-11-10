@@ -39,8 +39,8 @@ export class SaGauge extends BaseElement {
         ${filled > 0.5 ? `<circle class="gauge__fill" cx="50" cy="50" r="${RADIUS}"
                 stroke-dasharray="${filled.toFixed(2)} ${CIRCUMFERENCE.toFixed(2)}"
                 transform="rotate(-90 50 50)" />` : ''}
-        ${compact ? '' : `<text class="gauge__value" x="50" y="46" text-anchor="middle" dominant-baseline="central">${escapeHtml(display)}</text>`}
-        ${compact || !grade ? '' : `<text class="gauge__grade" x="50" y="66" text-anchor="middle">${escapeHtml(grade)}</text>`}
+        ${compact ? '' : `<text class="gauge__value" x="50" y="44" text-anchor="middle" dominant-baseline="central">${escapeHtml(display)}</text>`}
+        ${compact || !grade ? '' : `<text class="gauge__grade" x="50" y="70" text-anchor="middle">${escapeHtml(grade)}</text>`}
         ${label || verdict ? `<title>${escapeHtml(label || verdict)}</title>` : ''}
       </svg>
     `);

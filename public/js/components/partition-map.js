@@ -18,6 +18,12 @@ const TINY_PERCENT = 3;
 /** Cool hues only: green/amber/red are reserved for health severities. */
 const HUES = [199, 217, 236, 262, 288, 320];
 
+/** file:// URL of a mount point, for POSIX paths and Windows drive letters alike. */
+function fileUrl(target) {
+  const normalized = String(target).replace(/\\/g, '/');
+  return normalized.startsWith('/') ? `file://${encodeURI(normalized)}` : `file:///${encodeURI(normalized)}`;
+}
+
 export class SaPartitionMap extends BaseElement {
   constructor() {
     super();
@@ -140,7 +146,7 @@ export class SaPartitionMap extends BaseElement {
     if (share < TINY_PERCENT) classes.push('volumes__seg--tiny');
     if (this.state.busy === volume.path) classes.push('is-busy');
 
-    const href = mount ? `file://${encodeURI(mount)}` : null;
+    const href = mount ? fileUrl(mount) : null;
     return `<a class="${classes.join(' ')}"${href ? ` href="${escapeHtml(href)}"` : ' role="button"'}
         data-volume="${escapeHtml(volume.path || '')}"
         style="--hue:${HUES[index % HUES.length]};flex-basis:${Math.max(share, 0.4).toFixed(3)}%"

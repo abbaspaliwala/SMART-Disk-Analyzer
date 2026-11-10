@@ -222,7 +222,215 @@ export function parseFindmnt(json) {
   return { disks, mounts };
 }
 
+/* ==========================================================================
+   Windows: physical disks, partitions and volumes through PowerShell
+   ========================================================================== */
 
+/**
+ * Collect the same picture lsblk gives on Linux, using the Storage module.
+ *
+ * One PowerShell process, one JSON document: disks (number, model, size),
+ * partitions (disk number, partition number, size, drive letter) and volumes
+ * (label, filesystem, free space). Only built-in cmdlets are used and every
+ * section fails independently, so a locked-down machine still yields what it can.
+ */
+export const WINDOWS_SCRIPT = [
+  "$ErrorActionPreference = 'SilentlyContinue'",
+  '$result = [ordered]@{ source = "windows"; disks = @(); partitions = @(); volumes = @(); error = $null }',
+  'try {',
+  '  $list = @()',
+  '  foreach ($d in @(Get-Disk)) {',
+  '    $list += [pscustomobject]@{ number = [int]$d.Number; model = [string]$d.FriendlyName;',
+  '      serial = [string]$d.SerialNumber; size = [double]$d.Size; bus = [string]$d.BusType;',
+  '      style = [string]$d.PartitionStyle }',
+  '  }',
+  '  $result.disks = $list',
+  '} catch { $result.error = "Get-Disk: " + $_.Exception.Message }',
+  'try {',
+  '  $list = @()',
+  '  foreach ($p in @(Get-Partition)) {',
+  '    $letter = ""',
+  '    if ( ([string]$p.DriveLetter) -match "^[A-Za-z]$" ) { $letter = ([string]$p.DriveLetter).ToUpper() }',
+  '    $list += [pscustomobject]@{ disk = [int]$p.DiskNumber; number = [int]$p.PartitionNumber;',
+  '      offset = [double]$p.Offset; size = [double]$p.Size; letter = $letter; type = [string]$p.Type }',
+  '  }',
+  '  $result.partitions = $list',
+  '} catch { if (-not $result.error) { $result.error = "Get-Partition: " + $_.Exception.Message } }',
+  'try {',
+  '  $list = @()',
+  '  foreach ($v in @(Get-Volume)) {',
+  '    $letter = ""',
+  '    if ( ([string]$v.DriveLetter) -match "^[A-Za-z]$" ) { $letter = ([string]$v.DriveLetter).ToUpper() }',
+  '    $list += [pscustomobject]@{ letter = $letter; label = [string]$v.FileSystemLabel;',
+  '      fstype = [string]$v.FileSystem; size = [double]$v.Size; free = [double]$v.SizeRemaining;',
+  '      driveType = [string]$v.DriveType }',
+  '  }',
+  '  $result.volumes = $list',
+  '} catch { if (-not $result.error) { $result.error = "Get-Volume: " + $_.Exception.Message } }',
+  // Write UTF-8 bytes straight to the pipe: no BOM, no OEM code page, so labels
+  // with accents survive and JSON.parse never sees a byte-order mark.
+  '$json = ConvertTo-Json -InputObject $result -Depth 6 -Compress',
+  '$bytes = [Text.Encoding]::UTF8.GetBytes($json)',
+  '$stdout = [Console]::OpenStandardOutput()',
+  '$stdout.Write($bytes, 0, $bytes.Length)',
+  '$stdout.Flush()',
+].join('\n');
+
+/** The system PowerShell, found without relying on PATH. */
+export function powershellPath(env = process.env) {
+  const root = env.SystemRoot || env.windir || 'C:\\Windows';
+  const candidate = path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return fs.existsSync(candidate) ? candidate : 'powershell.exe';
+}
+
+/** "C:\\" mount point for a drive letter, or null. */
+function driveLetterMount(letter) {
+  const value = String(letter || '').trim().toUpperCase();
+  return /^[A-Z]$/.test(value) ? `${value}:\\` : null;
+}
+
+/** One Windows partition in the volume shape the GUI understands. */
+function toWindowsVolume(partition, volume) {
+  const mountpoint = driveLetterMount(partition?.letter);
+  const sizeBytes = num(partition?.size) ?? 0;
+  const free = num(volume?.free);
+  const drive = mountpoint ? mountpoint.slice(0, 2) : null;
+  const partitionType = String(partition?.type || '').trim();
+  // A lettered volume shows its label (or "C: Local Disk"); a bare partition
+  // shows its type, which is how Windows names EFI/Recovery partitions.
+  const label = String(volume?.label || '').trim()
+    || (drive ? `${drive} Local Disk` : (partitionType || null));
+  const name = drive || `disk${partition?.disk}p${partition?.number}`;
+  return {
+    name,
+    path: mountpoint || name,
+    type: 'part',
+    number: num(partition?.number),
+    sizeBytes,
+    fstype: String(volume?.fstype || '').trim() || null,
+    label,
+    mountpoint,
+    mountpoints: mountpoint ? [mountpoint] : [],
+    mounted: Boolean(mountpoint),
+    fsAvailableBytes: free,
+    fsUsePercent: sizeBytes > 0 && free !== null
+      ? Math.max(0, Math.round(((sizeBytes - free) / sizeBytes) * 100))
+      : null,
+  };
+}
+
+/**
+ * Turn the PowerShell JSON into one entry per physical disk with its volumes.
+ * Disk numbering matches PhysicalDriveN, which is what smartctl's `/dev/sdX`
+ * addresses on Windows.
+ */
+export function parseWindowsPartitions(raw) {
+  const disks = Array.isArray(raw?.disks) ? raw.disks : [];
+  const partitions = Array.isArray(raw?.partitions) ? raw.partitions : [];
+  const volumes = Array.isArray(raw?.volumes) ? raw.volumes : [];
+
+  const volumeByLetter = new Map();
+  for (const volume of volumes) {
+    const letter = String(volume?.letter || '').trim().toUpperCase();
+    if (letter) volumeByLetter.set(letter, volume);
+  }
+
+  const mounts = new Set();
+
+  // Get-Disk can be denied while Get-Partition still works, and partitions carry
+  // their own disk number - so the disk list is the union of both sources.
+  const byNumber = new Map();
+  for (const disk of disks) {
+    const number = num(disk?.number);
+    if (number !== null) byNumber.set(number, disk);
+  }
+  for (const partition of partitions) {
+    const number = num(partition?.disk);
+    if (number !== null && !byNumber.has(number)) byNumber.set(number, { number, model: null, size: null });
+  }
+
+  const entries = [...byNumber.values()]
+    .sort((a, b) => (num(a?.number) ?? 0) - (num(b?.number) ?? 0))
+    .map((disk) => {
+      const number = num(disk?.number) ?? 0;
+      const own = partitions
+        .filter((partition) => num(partition?.disk) === number)
+        .sort((a, b) => (num(a?.number) ?? 0) - (num(b?.number) ?? 0));
+      const volumeEntries = own.map((partition) => {
+        const letter = String(partition?.letter || '').trim().toUpperCase();
+        return toWindowsVolume(partition, volumeByLetter.get(letter));
+      });
+      for (const volume of volumeEntries) {
+        for (const mountpoint of volume.mountpoints) mounts.add(mountpoint);
+      }
+      const sizeBytes = num(disk?.size) ?? 0;
+      const allocatedBytes = volumeEntries.reduce((total, volume) => total + volume.sizeBytes, 0);
+      return {
+        name: `disk${number}`,
+        path: `disk${number}`,
+        type: 'disk',
+        model: String(disk?.model || '').trim() || null,
+        sizeBytes,
+        volumes: volumeEntries,
+        allocatedBytes,
+        freeBytes: Math.max(0, sizeBytes - allocatedBytes),
+        mounts: volumeEntries.flatMap((volume) => volume.mountpoints),
+    };
+  });
+
+  return { disks: entries, mounts };
+}
+
+/**
+ * smartctl addresses Windows drives as `/dev/sda`, `/dev/sdb`, ... which map to
+ * PhysicalDrive0, 1, ... - the same numbering `Get-Disk` reports.
+ */
+export function windowsDiskName(devicePath) {
+  const value = String(devicePath || '').trim();
+  const sd = value.match(/^\/dev\/sd([a-z])$/i);
+  if (sd) return `disk${sd[1].toLowerCase().charCodeAt(0) - 97}`;
+  const physical = value.match(/PhysicalDrive(\d+)$/i);
+  if (physical) return `disk${Number(physical[1])}`;
+  return null;
+}
+
+/**
+ * Base64 of the script as UTF-16LE, which is what `powershell -EncodedCommand`
+ * expects.
+ *
+ * The script must not be passed through `-Command`: it contains quotes and
+ * newlines, and the Windows command line mangles them (`The string is missing
+ * the terminator`). A base64 token has neither, so it survives any argv.
+ */
+export function encodeCommand(script) {
+  return Buffer.from(String(script), 'utf16le').toString('base64');
+}
+
+/** Run the PowerShell volume probe and normalise its JSON. */
+async function readWindows({ binary, timeoutMs }) {
+  try {
+    const { stdout } = await execFileAsync(binary, [
+      '-NoProfile',
+      '-NonInteractive',
+      '-EncodedCommand',
+      encodeCommand(WINDOWS_SCRIPT),
+    ], {
+      timeout: timeoutMs,
+      maxBuffer: MAX_OUTPUT_BYTES,
+      windowsHide: true,
+    });
+    const raw = JSON.parse(String(stdout).trim());
+    const parsed = parseWindowsPartitions(raw);
+    const reported = String(raw?.error || '').trim();
+    // An empty answer would leave the volume bar silently blank, so explain it.
+    const error = reported || (parsed.disks.length
+      ? null
+      : 'PowerShell returned no disks and no partitions - are the Storage cmdlets available?');
+    return { ...parsed, error, columns: null };
+  } catch (error) {
+    return { disks: [], mounts: new Set(), columns: null, error: error.message };
+  }
+}
 
 /**
  * Candidate lsblk names for a smartctl device path. smartctl addresses NVMe
@@ -254,6 +462,12 @@ export function matchDisk(parsed, devicePath, model = null) {
   if (!disks.length) return null;
   for (const candidate of deviceCandidates(devicePath)) {
     const hit = disks.find((disk) => disk.name === candidate);
+    if (hit) return hit;
+  }
+  // Windows: /dev/sda is PhysicalDrive0, which the map calls disk0.
+  const windowsName = windowsDiskName(devicePath);
+  if (windowsName) {
+    const hit = disks.find((disk) => disk.name === windowsName);
     if (hit) return hit;
   }
   const wanted = normalizeModel(model);
@@ -304,15 +518,26 @@ async function readFindmnt({ binary, timeoutMs }) {
 /**
  * Discover partitions and volumes for every drive.
  *
- * lsblk is preferred because it also reports unmounted partitions and the
- * unallocated tail of each disk; findmnt is used when lsblk is missing or
- * blocked, which is common inside containers.
+ * Windows has no lsblk, so the Storage cmdlets are queried through PowerShell.
+ * Everywhere else lsblk is preferred because it also reports unmounted
+ * partitions and the unallocated tail of each disk; findmnt is used when lsblk
+ * is missing or blocked, which is common inside containers.
  */
 export async function readPartitions({
   binary = 'lsblk',
   findmntBinary = 'findmnt',
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  platform = process.platform,
+  powershell = null,
 } = {}) {
+  if (platform === 'win32') {
+    // PowerShell start-up plus the Storage module import regularly takes more
+    // than the 5 s the unix probes get.
+    const windowsTimeout = Math.max(timeoutMs, 20000);
+    const info = await readWindows({ binary: powershell || powershellPath(), timeoutMs: windowsTimeout });
+    return { ...info, source: info.disks.length ? 'windows' : null };
+  }
+
   const primary = await readLsblk({ binary, timeoutMs });
   if (primary.disks.length) return { ...primary, source: 'lsblk' };
 

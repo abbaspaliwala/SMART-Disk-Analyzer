@@ -145,8 +145,14 @@ a { color: var(--accent); }
   font-size: 13px;
 }
 .banner[hidden] { display: none; }
+.banner--watch { border-color: color-mix(in srgb, var(--watch) 45%, var(--border)); background: color-mix(in srgb, var(--watch) 12%, var(--panel)); }
+.banner--critical { border-color: color-mix(in srgb, var(--critical) 45%, var(--border)); background: color-mix(in srgb, var(--critical) 10%, var(--panel)); }
 .banner strong { display: block; font-size: 13px; margin-bottom: 2px; }
 .banner code { background: color-mix(in srgb, var(--bg) 60%, transparent); padding: 1px 5px; border-radius: 5px; }
+.banner__line { display: block; margin-top: 5px; line-height: 1.5; }
+.banner__line code { margin-right: 2px; }
+.banner__line--dim { color: var(--text-dim); }
+.banner__or { color: var(--text-dim); margin: 0 3px; }
 .banner__close { margin-left: auto; background: none; border: 0; color: var(--text-dim); cursor: pointer; font-size: 16px; line-height: 1; }
 
 /* ---------- layout ---------- */

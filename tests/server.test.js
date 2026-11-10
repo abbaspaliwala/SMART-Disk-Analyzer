@@ -4,9 +4,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { buildReadArgs, detectSmartctl, parseScanOutput } from '../server/smartctl.js';
+import { buildReadArgs, dedupeScanDevices, detectSmartctl, fallbackBinaries, parseScanOutput } from '../server/smartctl.js';
 import { HistoryStore } from '../server/store.js';
-import { parseConfig, summarizeDevices, startServer } from '../server/index.js';
+import { dedupeDevices, parseConfig, summarizeDevices, startServer } from '../server/index.js';
 import { loadDemoDevices } from '../server/demo.js';
 
 test('parseConfig applies defaults and CLI overrides', () => {
@@ -62,10 +62,90 @@ test('buildReadArgs omits -d for auto detected buses and passes exotic ones', ()
   assert.deepEqual(buildReadArgs({ device: '/dev/bus/0', type: 'megaraid,3' }), ['-a', '-j', '-d', 'megaraid,3', '/dev/bus/0']);
 });
 
+test('a drive listed twice by smartctl is read once', () => {
+  // Windows can report the same physical drive under two -d types.
+  const scan = parseScanOutput([
+    '/dev/sda -d ata # /dev/sda, ATA device',
+    '/dev/sda -d sat # /dev/sda, ATA device',
+    '/dev/sdb -d ata # /dev/sdb, ATA device',
+    '/dev/sdb -d sat # /dev/sdb, ATA device',
+  ].join('\n'));
+  assert.equal(scan.length, 4);
+
+  const unique = dedupeScanDevices(scan);
+  assert.deepEqual(unique.map((entry) => entry.device), ['/dev/sda', '/dev/sdb']);
+  assert.equal(unique[0].type, 'ata', 'the first listing wins');
+  assert.deepEqual(dedupeScanDevices([]), []);
+  assert.deepEqual(dedupeScanDevices([{ device: '' }]), []);
+});
+
+test('the same drive under two device names is collapsed by serial', () => {
+  const drive = { key: 'a', model: 'WDC WD20EZAZ', serial: 'WD-0002', device: '/dev/sdb' };
+  const same = { key: 'a', model: 'WDC WD20EZAZ', serial: 'wd-0002', device: '\\\\.\\PhysicalDrive1' };
+  const other = { key: 'b', model: 'WDC WD20EZAZ', serial: 'WD-0003', device: '/dev/sdc' };
+  const anonymous = { key: 'c', model: 'USB Disk', serial: '', device: '/dev/sdd' };
+  const anonymousToo = { key: 'd', model: 'USB Disk', serial: '', device: '/dev/sde' };
+
+  const unique = dedupeDevices([drive, same, other, anonymous, anonymousToo]);
+  assert.deepEqual(unique.map((entry) => entry.key), ['a', 'b', 'c', 'd'],
+    'drives without a readable serial are never merged');
+});
+
 test('detectSmartctl reports a missing binary instead of throwing', async () => {
   const result = await detectSmartctl({ binary: 'definitely-not-smartctl-xyz', timeoutMs: 2000 });
   assert.equal(result.available, false);
   assert.equal(typeof result.error, 'string');
+});
+
+/** A probe that only knows the binaries listed in `installed`. */
+function fakeProbe(installed, calls = []) {
+  return async (binary) => {
+    calls.push(binary);
+    return installed.includes(binary)
+      ? { available: true, version: '7.5', firstLine: 'smartctl 7.5', binary, useSudo: false }
+      : { available: false, version: null, error: `cannot execute "${binary}": ENOENT`, binary, useSudo: false };
+  };
+}
+
+test('detectSmartctl finds a Windows install that is not on PATH', async () => {
+  const install = 'C:\\Program Files\\smartmontools\\bin\\smartctl.exe';
+  const calls = [];
+  const result = await detectSmartctl({ platform: 'win32', probe: fakeProbe([install], calls) });
+
+  assert.equal(result.available, true);
+  assert.equal(result.version, '7.5');
+  assert.equal(result.binary, install, 'callers must use the resolved path');
+  assert.equal(result.fallback, true);
+  assert.deepEqual(calls, ['smartctl', install], 'PATH first, then Program Files');
+  assert.ok(fallbackBinaries('win32').includes(install));
+  assert.ok(fallbackBinaries('linux').includes('/usr/sbin/smartctl'));
+});
+
+test('detectSmartctl keeps the original error when nothing is installed', async () => {
+  const calls = [];
+  const result = await detectSmartctl({ platform: 'win32', probe: fakeProbe([], calls) });
+  assert.equal(result.available, false);
+  assert.equal(result.binary, 'smartctl');
+  assert.match(result.error, /cannot execute "smartctl"/);
+  assert.equal(calls.length, 1 + fallbackBinaries('win32').length);
+});
+
+test('an explicit --smartctl path is never second-guessed', async () => {
+  const calls = [];
+  const result = await detectSmartctl({
+    binary: 'D:\\tools\\smartctl.exe',
+    platform: 'win32',
+    probe: fakeProbe(['C:\\Program Files\\smartmontools\\bin\\smartctl.exe'], calls),
+  });
+  assert.equal(result.available, false);
+  assert.deepEqual(calls, ['D:\\tools\\smartctl.exe']);
+});
+
+test('the sudo path does not fall back to absolute binaries', async () => {
+  const calls = [];
+  const result = await detectSmartctl({ useSudo: true, platform: 'linux', probe: fakeProbe(['/usr/sbin/smartctl'], calls) });
+  assert.equal(result.available, false, '"sudo -n /usr/sbin/smartctl" would need its own sudoers entry');
+  assert.deepEqual(calls, ['smartctl']);
 });
 
 test('summarizeDevices buckets health and finds the nearest end of life', () => {

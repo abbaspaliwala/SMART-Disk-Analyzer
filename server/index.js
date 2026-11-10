@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import { normalizeSmartctlJson, normalizeMany } from '../shared/normalize.js';
 import { buildSnapshot, enrichDevice } from '../shared/forecast.js';
+import { platformKind } from '../shared/diagnose.js';
 import { slugify } from '../shared/format.js';
 import { HistoryStore } from './store.js';
 import { detectSmartctl, readDevices, scanDevices } from './smartctl.js';
@@ -125,6 +126,7 @@ Usage: node server/index.js [options]
 
 Raw SMART data requires root. Either run with sudo or install the sudoers rule
 once with:  ./bin/setup-sudoers.sh   then start with  npm run elevated
+On Windows, start the server from an elevated terminal instead (no sudo needed).
 `;
 /** A device placeholder for disks whose SMART data could not be read. */
 function stubDevice(read, scanEntry) {
@@ -257,7 +259,28 @@ async function collectLive(config) {
     }
     return stubDevice(read, scanEntry);
   });
-  return { devices, scan, error: null };
+  return { devices: dedupeDevices(devices), scan, error: null };
+}
+
+/**
+ * Drop drives that are the same piece of hardware under two device names
+ * (`/dev/sda` and `\\.\PhysicalDrive0`, or a disk plus its RAID view).
+ *
+ * Only the serial number is trusted: two identical models without a readable
+ * serial stay separate, because they really can be two drives.
+ */
+export function dedupeDevices(devices) {
+  const seen = new Set();
+  const unique = [];
+  for (const device of devices) {
+    const serial = String(device?.serial || '').trim().toLowerCase();
+    if (serial) {
+      if (seen.has(serial)) continue;
+      seen.add(serial);
+    }
+    unique.push(device);
+  }
+  return unique;
 }
 
 /** Read the demo fixtures (never touches the real disks). */
@@ -268,18 +291,26 @@ function collectDemo(state) {
   }
   return { devices: state.demo.devices, histories: state.demo.histories, error: null };
 }
-/** Try the smartctl detection once and cache it on the state object. */
+/** Detect smartctl (once, or again while it is unavailable) and cache it. */
 async function ensureSmartctl(state) {
   if (!state.smartctl || !state.smartctl.available) {
-    state.smartctl = await detectSmartctl({
+    const detected = await detectSmartctl({
       binary: state.config.smartctl,
       useSudo: state.config.useSudo,
     });
+    // A binary found outside PATH (the Windows installer often adds none) has to
+    // be adopted, otherwise every scan and read would look for "smartctl" again.
+    if (detected.available && detected.binary && detected.binary !== state.config.smartctl) {
+      state.config.smartctl = detected.binary;
+    }
+    state.smartctl = detected;
   }
   return state.smartctl;
 }
 
-const PARTITION_CACHE_MS = 5000;
+// lsblk answers in milliseconds; the Windows PowerShell probe costs about a
+// second, so its result is worth keeping a little longer.
+const PARTITION_CACHE_MS = process.platform === 'win32' ? 15000 : 5000;
 
 /** Read (and briefly cache) the partition map - lsblk is cheap but not free. */
 async function partitionInfo(state, { force = false } = {}) {
@@ -375,6 +406,9 @@ async function buildPayload(state, { force = false, capture = 'auto' } = {}) {
     sourceDevices = demo.devices;
     histories = demo.histories;
   } else {
+    // Resolve the binary first: detection also probes the well-known install
+    // locations, so installing smartmontools is enough - a rescan picks it up.
+    await ensureSmartctl(state);
     const live = await collectLive(config);
     sourceDevices = live.devices;
     sourceError = live.error;
@@ -757,6 +791,7 @@ export async function startServer(config) {
 
   const smartctl = await ensureSmartctl(state);
   const isRoot = typeof process.getuid === 'function' ? process.getuid() === 0 : null;
+  const platform = platformKind(os.type());
   const server = createServer(state);
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -772,17 +807,41 @@ export async function startServer(config) {
   console.log(`  ${baseUrl}`);
   console.log(`  mode:      ${config.mode}${config.mode === 'demo' ? '  (fixtures + synthetic history)' : ''}`);
   console.log(`  smartctl:  ${smartctl.available ? `${smartctl.version} (${config.smartctl})` : 'NOT FOUND'}`);
+  if (smartctl.available && smartctl.fallback) {
+    console.log('             (found outside PATH - scans and reads use this path)');
+  }
   console.log(`  history:   ${config.historyFile}`);
-  console.log(`  volumes:   ${config.mode === 'demo' ? 'demo layouts' : 'lsblk (findmnt fallback)'}`);
+  const volumes = platform === 'windows'
+    ? 'Get-Disk / Get-Partition / Get-Volume (PowerShell)'
+    : 'lsblk (findmnt fallback)';
+  console.log(`  volumes:   ${config.mode === 'demo' ? 'demo layouts' : volumes}`);
   console.log(`  file mgr:  ${config.openEnabled
     ? (state.opener ? `${state.opener.name} (${state.opener.command})` : 'no launcher found')
     : 'disabled (--no-open)'}`);
   if (config.mode === 'live') {
-    if (smartctl.available && !isRoot && !config.useSudo) {
+    if (!smartctl.available && !config.useSudo) {
+      console.log('');
+      console.log('  ! smartctl could not be executed, so no disks can be listed.');
+      if (platform === 'windows') {
+        console.log('    Install smartmontools:  winget install smartmontools');
+        console.log('    Then start this server from an elevated terminal (Run as administrator).');
+      } else if (platform === 'macos') {
+        console.log('    Install smartmontools:  brew install smartmontools');
+      } else {
+        console.log('    Install smartmontools:  sudo apt install smartmontools   (or: sudo dnf install smartmontools)');
+      }
+      if (smartctl.error) console.log(`    ${smartctl.error}`);
+    }
+    if (smartctl.available && platform !== 'windows' && !isRoot && !config.useSudo) {
       console.log('');
       console.log('  ! SMART data needs root: disks will be listed but unreadable.');
       console.log('    Start with:  sudo npm start    |    npm run elevated');
       console.log('    Or install the sudoers rule once:  ./bin/setup-sudoers.sh');
+    }
+    if (smartctl.available && platform === 'windows' && !config.useSudo) {
+      console.log('');
+      console.log('  ! Windows only lets administrators read raw disk data.');
+      console.log('    If the disks show as unreadable, restart the server from an elevated terminal.');
     }
     if (config.useSudo && !smartctl.available) {
       console.log('  ! smartctl could not run through "sudo -n" (password required?).');

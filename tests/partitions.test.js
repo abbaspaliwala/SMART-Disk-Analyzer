@@ -8,15 +8,19 @@ import {
   buildOpenSpawn,
   deviceCandidates,
   diskNameForPartition,
+  encodeCommand,
   matchDisk,
   openInFileManager,
   parseFindmnt,
   parseLsblk,
+  parseWindowsPartitions,
   partitionNumber,
   partitionPayload,
   resolveOpener,
   validateOpenTarget,
   which,
+  WINDOWS_SCRIPT,
+  windowsDiskName,
 } from '../server/partitions.js';
 import { buildDemoPartitions, loadDemoDevices } from '../server/demo.js';
 import { openBrowser, resolveBrowser } from '../server/browser.js';
@@ -494,6 +498,125 @@ test('the server opens the dashboard in a browser on startup', async () => {
   assert.equal(recorded, 'http://127.0.0.1:7373/?x=1');
 
   await fs.rm(dir, { recursive: true, force: true });
+});
+
+/* --------------------------------------------------------------------------
+   Windows volume map (PowerShell JSON -> disk entries -> GUI payload)
+   -------------------------------------------------------------------------- */
+
+/** Two disks: a GPT system drive and an MBR data drive. */
+const WINDOWS_MAP = {
+  source: 'windows',
+  error: null,
+  disks: [
+    { number: 0, model: 'Samsung SSD 970 EVO Plus 1TB', serial: 'S1', size: 1000204886016, bus: 'NVMe', style: 'GPT' },
+    { number: 1, model: 'WDC WD20EZAZ-00GGJB0', serial: 'S2', size: 2000398934016, bus: 'SATA', style: 'MBR' },
+  ],
+  partitions: [
+    { disk: 0, number: 1, offset: 1048576, size: 104857600, letter: '', type: 'System' },
+    { disk: 0, number: 2, offset: 105906176, size: 999653638144, letter: 'C', type: 'Basic' },
+    { disk: 1, number: 1, offset: 1048576, size: 500000000000, letter: 'D', type: 'Basic' },
+    { disk: 1, number: 2, offset: 500001048576, size: 1000000000, letter: '', type: 'Recovery' },
+  ],
+  volumes: [
+    { letter: 'C', label: 'System', fstype: 'NTFS', size: 999653638144, free: 400000000000, driveType: 'Fixed' },
+    { letter: 'D', label: '', fstype: 'NTFS', size: 500000000000, free: 100000000000, driveType: 'Fixed' },
+  ],
+};
+
+test('parseWindowsPartitions groups partitions under their physical disk', () => {
+  const parsed = parseWindowsPartitions(WINDOWS_MAP);
+
+  assert.equal(parsed.disks.length, 2);
+  assert.deepEqual([...parsed.mounts].sort(), ['C:\\', 'D:\\']);
+
+  const [system, data] = parsed.disks;
+  assert.equal(system.name, 'disk0');
+  assert.equal(system.model, 'Samsung SSD 970 EVO Plus 1TB');
+  assert.equal(system.sizeBytes, 1000204886016);
+  assert.equal(system.volumes.length, 2);
+
+  const efi = system.volumes[0];
+  assert.equal(efi.mounted, false);
+  assert.equal(efi.mountpoint, null);
+  assert.equal(efi.label, 'System', 'a bare partition is named after its type');
+  assert.equal(efi.path, 'disk0p1');
+
+  const c = system.volumes[1];
+  assert.equal(c.mountpoint, 'C:\\');
+  assert.equal(c.path, 'C:\\');
+  assert.equal(c.mounted, true);
+  assert.equal(c.fstype, 'NTFS');
+  assert.equal(c.label, 'System');
+  assert.equal(c.fsAvailableBytes, 400000000000);
+  assert.equal(c.fsUsePercent, 60, '(999.6 GB - 400 GB) / 999.6 GB');
+
+  // unallocated tail, exactly like the lsblk map reports
+  assert.equal(system.allocatedBytes, 999758495744);
+  assert.equal(system.freeBytes, 1000204886016 - 999758495744);
+
+  assert.equal(data.volumes[0].path, 'D:\\');
+  assert.equal(data.volumes[0].label, 'D: Local Disk', 'an unlabelled drive falls back to the letter');
+  assert.equal(data.volumes[0].fsUsePercent, 80);
+  assert.equal(data.volumes[1].label, 'Recovery');
+});
+
+test('the Windows map is matched by smartctl device name', () => {
+  const parsed = parseWindowsPartitions(WINDOWS_MAP);
+
+  assert.equal(windowsDiskName('/dev/sda'), 'disk0');
+  assert.equal(windowsDiskName('/dev/sdd'), 'disk3');
+  assert.equal(windowsDiskName('\\\\.\\PhysicalDrive2'), 'disk2');
+  assert.equal(windowsDiskName('/dev/nvme0'), null);
+
+  assert.equal(matchDisk(parsed, '/dev/sda').name, 'disk0');
+  assert.equal(matchDisk(parsed, '/dev/sdb').name, 'disk1');
+  assert.equal(matchDisk(parsed, '/dev/sdc'), null, 'a drive without a partition map is not invented');
+
+  const payload = partitionPayload(matchDisk(parsed, '/dev/sdb'));
+  assert.equal(payload.device, 'disk1');
+  assert.equal(payload.volumes.length, 2);
+  assert.equal(payload.volumes[0].mountpoint, 'D:\\');
+  assert.equal(payload.volumes[0].mounted, true);
+  assert.deepEqual(Object.keys(payload.volumes[0]).sort(), [
+    'fsAvailableBytes', 'fsUsePercent', 'fstype', 'label', 'mounted', 'mountpoint', 'number', 'path', 'sizeBytes',
+  ]);
+});
+
+test('a broken PowerShell probe degrades to an empty map', () => {
+  assert.deepEqual(parseWindowsPartitions({ error: 'Get-Disk: Access is denied' }), { disks: [], mounts: new Set() });
+  assert.deepEqual(parseWindowsPartitions(null), { disks: [], mounts: new Set() });
+});
+
+test('the PowerShell script is passed as base64, never as -Command', () => {
+  // "-Command <multi-line string>" loses its quotes in the Windows command line;
+  // -EncodedCommand takes a token with no quotes and no newlines.
+  const encoded = encodeCommand(WINDOWS_SCRIPT);
+  assert.match(encoded, /^[A-Za-z0-9+/]+={0,2}$/);
+  assert.equal(Buffer.from(encoded, 'base64').toString('utf16le'), WINDOWS_SCRIPT,
+    'powershell decodes -EncodedCommand as UTF-16LE');
+  assert.match(WINDOWS_SCRIPT, /Get-Disk/);
+  assert.match(WINDOWS_SCRIPT, /Get-Partition/);
+  assert.match(WINDOWS_SCRIPT, /Get-Volume/);
+});
+
+test('partitions alone still produce a disk entry', () => {
+  // Get-Disk can be denied while Get-Partition keeps working.
+  const parsed = parseWindowsPartitions({
+    disks: [],
+    partitions: [{ disk: 2, number: 1, size: 1000, letter: 'E', type: 'Basic' }],
+    volumes: [{ letter: 'E', label: 'Data', fstype: 'NTFS', size: 1000, free: 250 }],
+  });
+
+  assert.equal(parsed.disks.length, 1);
+  const [disk] = parsed.disks;
+  assert.equal(disk.name, 'disk2');
+  assert.equal(disk.model, null);
+  assert.equal(disk.sizeBytes, 0, 'unknown until Get-Disk answers');
+  assert.equal(disk.volumes.length, 1);
+  assert.equal(disk.volumes[0].mountpoint, 'E:\\');
+  assert.equal(disk.volumes[0].fsUsePercent, 75);
+  assert.deepEqual([...parsed.mounts], ['E:\\']);
 });
 
 

@@ -10,6 +10,33 @@ import { execFile } from 'node:child_process';
 const DEFAULT_TIMEOUT_MS = 20000;
 const MAX_CONCURRENCY = 4;
 
+/** The name the analyzer looks for when no --smartctl was given. */
+const DEFAULT_BINARY = 'smartctl';
+
+/**
+ * Well-known install locations, tried when the default name is not on PATH.
+ * The Windows installer does not always add its bin directory to PATH, so an
+ * installed smartmontools would otherwise look like a missing one.
+ */
+const BINARY_FALLBACKS = {
+  win32: [
+    'C:\\Program Files\\smartmontools\\bin\\smartctl.exe',
+    'C:\\Program Files (x86)\\smartmontools\\bin\\smartctl.exe',
+  ],
+  posix: [
+    '/usr/sbin/smartctl',
+    '/usr/local/sbin/smartctl',
+    '/usr/local/bin/smartctl',
+    '/opt/homebrew/bin/smartctl',
+    '/opt/local/bin/smartctl',
+  ],
+};
+
+/** Fallback binaries for a platform (node's process.platform names). */
+export function fallbackBinaries(platform = process.platform) {
+  return platform === 'win32' ? [...BINARY_FALLBACKS.win32] : [...BINARY_FALLBACKS.posix];
+}
+
 /** Device types where smartctl auto-detection is reliable; no -d needed. */
 const AUTO_TYPES = new Set(['', 'ata', 'scsi', 'sat', 'nvme', 'auto']);
 
@@ -44,8 +71,8 @@ function run(binary, args, { timeoutMs = DEFAULT_TIMEOUT_MS, useSudo = false } =
   });
 }
 
-/** Detect smartctl and its version. */
-export async function detectSmartctl({ binary = 'smartctl', useSudo = false, timeoutMs = 5000 } = {}) {
+/** Run "<binary> --version" once; never throws. */
+async function probeBinary(binary, { useSudo = false, timeoutMs = 5000 } = {}) {
   try {
     const { stdout, stderr } = await run(binary, ['--version'], { timeoutMs, useSudo });
     const firstLine = (stdout.split('\n')[0] || '').trim();
@@ -56,12 +83,41 @@ export async function detectSmartctl({ binary = 'smartctl', useSudo = false, tim
         version: null,
         error: (stderr || '').trim() || `"${binary} --version" did not report a smartctl version`,
         useSudo,
+        binary,
       };
     }
-    return { available: true, version: match[1], firstLine, useSudo };
+    return { available: true, version: match[1], firstLine, useSudo, binary };
   } catch (error) {
-    return { available: false, version: null, error: error.message, useSudo };
+    return { available: false, version: null, error: error.message, useSudo, binary };
   }
+}
+
+/**
+ * Detect smartctl and its version.
+ *
+ * When the configured name is the default "smartctl" (so it came from PATH) and
+ * it cannot be executed, the well-known install locations are probed too. An
+ * explicit --smartctl path is never second-guessed. Returns the error of the
+ * original attempt when nothing is found, so the message still names what the
+ * user asked for.
+ */
+export async function detectSmartctl({
+  binary = DEFAULT_BINARY,
+  useSudo = false,
+  timeoutMs = 5000,
+  platform = process.platform,
+  probe = probeBinary,
+} = {}) {
+  const direct = await probe(binary, { useSudo, timeoutMs });
+  if (direct.available || binary !== DEFAULT_BINARY) return direct;
+  // "sudo -n <absolute path>" needs its own sudoers entry, so only fall back
+  // when the privileges come from running as root.
+  if (useSudo) return direct;
+  for (const candidate of fallbackBinaries(platform)) {
+    const attempt = await probe(candidate, { useSudo, timeoutMs });
+    if (attempt.available) return { ...attempt, fallback: true };
+  }
+  return direct;
 }
 
 /**
@@ -97,7 +153,9 @@ export async function scanDevices({ binary = 'smartctl', useSudo = false, timeou
   for (const flag of ['--scan-open', '--scan']) {
     try {
       const { stdout } = await run(binary, [flag], { timeoutMs, useSudo });
-      const devices = parseScanOutput(stdout).filter((entry) => entry.device && !entry.device.startsWith('#'));
+      const devices = dedupeScanDevices(
+        parseScanOutput(stdout).filter((entry) => entry.device && !entry.device.startsWith('#')),
+      );
       attempts.push({ flag, count: devices.length });
       if (devices.length) return { devices, flag, attempts };
     } catch (error) {
@@ -105,6 +163,26 @@ export async function scanDevices({ binary = 'smartctl', useSudo = false, timeou
     }
   }
   return { devices: [], flag: null, attempts };
+}
+
+/**
+ * Keep one entry per device path.
+ *
+ * smartctl can list the same drive more than once - on Windows the same
+ * physical drive shows up under two `-d` types, and a drive that is both a
+ * physical disk and a RAID member is reported twice. Reading it twice would
+ * put the same disk in the list twice, so the first listing wins.
+ */
+export function dedupeScanDevices(devices) {
+  const seen = new Set();
+  const unique = [];
+  for (const device of devices) {
+    const name = String(device?.device || '').trim().toLowerCase();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    unique.push(device);
+  }
+  return unique;
 }
 
 /** Build the argument list for a full SMART read of one device. */

@@ -5,7 +5,8 @@
 
 import { api } from './api.js';
 import { state, setState, subscribe, loadTheme, applyTheme, selectedDisk } from './state.js';
-import { formatDateTime } from '/shared/format.js';
+import { escapeHtml, formatDateTime } from '/shared/format.js';
+import { buildPrivilegeNotice, buildScanNotice } from '/shared/diagnose.js';
 import './components/kpi-strip.js';
 import './components/disk-list.js';
 import './components/detail-view.js';
@@ -28,6 +29,20 @@ const dom = {
 /** Show a toast notification. */
 function notify(type, message) {
   dom.toasts?.push({ type, message });
+}
+
+/** Render a plain-data notice (shared/diagnose.js) as banner markup. */
+function noticeMarkup(notice) {
+  const lines = [`<strong>${escapeHtml(notice.title)}</strong>`];
+  if (notice.message) lines.push(`<span class="banner__line">${escapeHtml(notice.message)}</span>`);
+  if (notice.commands?.length) {
+    lines.push(`<span class="banner__line">${notice.commands
+      .map((command) => `<code>${escapeHtml(command)}</code>`)
+      .join('<span class="banner__or"> or </span>')}</span>`);
+  }
+  for (const note of notice.notes || []) lines.push(`<span class="banner__line">${escapeHtml(note)}</span>`);
+  if (notice.footnote) lines.push(`<span class="banner__line banner__line--dim">${escapeHtml(notice.footnote)}</span>`);
+  return lines.join('');
 }
 
 /** Live disks plus anything imported in this session. */
@@ -119,21 +134,27 @@ function renderChrome() {
   }
 
   if (dom.banner) {
+    // Imported drives are not part of the scan: only the live disks decide
+    // whether a scan diagnosis is still relevant.
+    const liveDiskCount = Array.isArray(payload?.disks) ? payload.disks.length : disks.length;
     let banner = null;
+    let tone = 'watch';
     if (error) {
-      banner = `<strong>Backend error</strong>${error}`;
-    } else if (status?.mode === 'live' && status.privileges && !status.privileges.canReadSmart && disks.length) {
-      banner = `<strong>SMART data needs root privileges</strong>
-        The ${disks.length} detected device${disks.length === 1 ? ' is' : 's are'} locked (<code>Permission denied</code>).
-        Restart with <code>sudo npm start</code>, or install the sudoers rule once with
-        <code>./bin/setup-sudoers.sh</code> and use <code>npm run elevated</code>.
-        Meanwhile you can explore the bundled demo drives with <code>npm run demo</code>, or import a
-        <code>smartctl -a -j</code> file with the Import button.`;
-    } else if (status?.mode === 'demo') {
-      banner = `<strong>Demo mode</strong>Five fixture drives with synthetic 12 week histories, so the dashboard and
-        forecast can be explored without root access.`;
+      banner = `<strong>Backend error</strong><span class="banner__line">${escapeHtml(error)}</span>`;
+      tone = 'critical';
+    } else {
+      const notice = buildScanNotice({ status, diskCount: liveDiskCount })
+        || buildPrivilegeNotice({ status, diskCount: liveDiskCount });
+      if (notice) {
+        banner = noticeMarkup(notice);
+        tone = notice.tone;
+      } else if (status?.mode === 'demo') {
+        banner = `<strong>Demo mode</strong>Five fixture drives with synthetic 12 week histories, so the dashboard and
+          forecast can be explored without root access.`;
+      }
     }
     if (banner) {
+      dom.banner.className = `banner banner--${tone}`;
       dom.banner.innerHTML = `<span>${banner}</span><button class="banner__close" aria-label="Dismiss">✕</button>`;
       dom.banner.hidden = false;
       dom.banner.querySelector('.banner__close')?.addEventListener('click', () => { dom.banner.hidden = true; });
