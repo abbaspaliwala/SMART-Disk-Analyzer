@@ -124,9 +124,13 @@ Usage: node server/index.js [options]
       --verbose               log every request
   -h, --help                  show this help
 
-Raw SMART data requires root. Either run with sudo or install the sudoers rule
-once with:  ./bin/setup-sudoers.sh   then start with  npm run elevated
-On Windows, start the server from an elevated terminal instead (no sudo needed).
+Stop the running server with Ctrl+C. Closing the browser does not stop it.
+
+Permissions: SMART needs raw device access.
+  Linux/macOS  sudo npm start   (or ./bin/setup-sudoers.sh once, then npm run elevated)
+  Windows      start from an elevated terminal, or use bin\\run-windows.cmd
+Without them the disks are still listed, but every read reports Permission denied.
+Windows only needs the elevation for reads; the scan itself works unprivileged.
 `;
 /** A device placeholder for disks whose SMART data could not be read. */
 function stubDevice(read, scanEntry) {
