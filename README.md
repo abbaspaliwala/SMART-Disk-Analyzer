@@ -1,11 +1,12 @@
 # SMART Disk Analyzer
 
-A local, browser-based dashboard that reads **every SMART parameter of every disk in the
-machine**, scores the health of each drive and **forecasts its remaining useful life**.
+**Know how long each drive will last.** The dashboard reads **every SMART parameter of every disk
+in the machine**, scores the health of each drive, **forecasts its remaining useful life** with an
+explicit confidence level and draws the partition layout.
 
-The UI is a vanilla-JavaScript single page app built from web components. A tiny
-zero-dependency Node server bridges the browser to `smartctl` (from `smartmontools`),
-which is the only reliable way for a web page to reach raw device data.
+`smartctl` (from `smartmontools`) is the only part that talks to the hardware. Everything else runs
+on your machine: a tiny zero-dependency Node process serves a vanilla-JavaScript single page app
+built from web components, on Linux, macOS and Windows.
 
 ![dashboard](docs/screenshot-overview.png)
 

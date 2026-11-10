@@ -3,7 +3,7 @@
   "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "Browser-based dashboard that reads every SMART parameter of all local disks through smartctl and forecasts the remaining useful life of each drive.",
+  "description": "Know how long your drives will last: every SMART attribute, health score and remaining-life forecast for every local disk. Zero-dependency browser dashboard and Node server for Linux, macOS and Windows.",
   "keywords": [
     "smart",
     "smartctl",
